@@ -27,6 +27,13 @@ try:
 except ImportError:
     HAS_MQTT = False
 
+# ファイルベースキュー
+try:
+    from message_queue import FileQueue
+    HAS_FILE_QUEUE = True
+except ImportError:
+    HAS_FILE_QUEUE = False
+
 
 # =============================================================================
 # 定数・列挙型
@@ -356,28 +363,46 @@ class EquipmentStatusManager:
 
 
 # =============================================================================
-# MQTTPublisher クラス（ネットワーク障害対応版）
+# MQTTPublisher クラス（ネットワーク障害対応版・ファイルキュー永続化）
 # =============================================================================
 
 class MQTTPublisher:
-    """MQTT送信（自動再接続・オフラインキュー対応）"""
+    """MQTT送信（自動再接続・オフラインキュー対応・ファイル永続化）"""
 
     # オフラインキューの最大サイズ
-    MAX_QUEUE_SIZE = 1000
+    MAX_QUEUE_SIZE = 10000
 
-    def __init__(self, config: MQTTConfig):
+    def __init__(self, config: MQTTConfig, queue_dir: str = None):
         self.config = config
         self.client = None
         self.connected = False
 
-        # オフラインキュー: ネットワーク断時にメッセージを蓄積
-        self.offline_queue: deque = deque(maxlen=self.MAX_QUEUE_SIZE)
-        self.queue_overflow_count = 0  # キュー溢れカウント
+        # ファイルベースキュー（永続化）
+        if queue_dir is None:
+            queue_dir = os.path.join(os.path.dirname(__file__), "queue")
+        queue_file = os.path.join(queue_dir, "pending_mqtt.jsonl")
+
+        if HAS_FILE_QUEUE:
+            self.file_queue = FileQueue(queue_file, max_retries=self.MAX_QUEUE_SIZE)
+            self._use_file_queue = True
+        else:
+            self.file_queue = None
+            self._use_file_queue = False
+            print("Warning: FileQueue not available. Using memory-only queue.")
+
+        # メモリキュー（FileQueue未使用時のフォールバック）
+        self.memory_queue: deque = deque(maxlen=self.MAX_QUEUE_SIZE)
+        self.queue_overflow_count = 0
 
         # 再接続設定
         self.reconnect_delay = 5  # 再接続間隔（秒）
         self.last_reconnect_attempt = 0
         self.reconnect_count = 0
+
+        # バックグラウンド再送スレッド
+        self._retry_thread = None
+        self._retry_running = False
+        self._retry_interval = 5.0  # 再送チェック間隔（秒）
 
         # 統計
         self.stats = {
@@ -422,10 +447,16 @@ class MQTTPublisher:
             if was_disconnected and self.reconnect_count > 0:
                 print(f"MQTT reconnected to {self.config.broker}:{self.config.port}")
                 self.stats["reconnects"] += 1
-                # キューに溜まったメッセージを送信
-                self._flush_queue()
+                # キューに溜まったメッセージを送信（バックグラウンドで処理）
+                pending = self._get_queue_size()
+                if pending > 0:
+                    print(f"  Pending messages in queue: {pending}")
             else:
                 print(f"MQTT connected to {self.config.broker}:{self.config.port}")
+                # 起動時にキューにデータがあれば表示
+                pending = self._get_queue_size()
+                if pending > 0:
+                    print(f"  Resuming {pending} pending messages from queue")
 
             self.reconnect_count += 1
         else:
@@ -440,33 +471,92 @@ class MQTTPublisher:
         else:
             print("MQTT disconnected gracefully")
 
-    def _flush_queue(self):
-        """オフラインキューのメッセージを送信"""
-        if not self.connected or not self.offline_queue:
-            return
+    def _get_queue_size(self) -> int:
+        """キューのサイズを取得"""
+        if self._use_file_queue and self.file_queue:
+            return self.file_queue.get_count()
+        return len(self.memory_queue)
 
-        sent_count = 0
-        failed_count = 0
+    def _add_to_queue(self, topic: str, payload: str):
+        """キューにメッセージを追加"""
+        if self._use_file_queue and self.file_queue:
+            self.file_queue.add({"topic": topic, "payload": payload})
+        else:
+            if len(self.memory_queue) >= self.MAX_QUEUE_SIZE:
+                self.queue_overflow_count += 1
+            self.memory_queue.append((topic, payload))
+        self.stats["queued"] += 1
 
-        while self.offline_queue and self.connected:
-            topic, payload = self.offline_queue.popleft()
+    def _process_one_from_queue(self) -> bool:
+        """キューから1件送信を試みる。成功時True、キュー空または失敗時False"""
+        if not self.connected or not self.client:
+            return False
+
+        if self._use_file_queue and self.file_queue:
+            pending = self.file_queue.get_pending(limit=1)
+            if not pending:
+                return False
+
+            msg = pending[0]
+            topic = msg.data.get("topic", "")
+            payload = msg.data.get("payload", "")
+
             try:
                 result = self.client.publish(topic, payload, qos=1)
                 if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                    sent_count += 1
+                    self.file_queue.remove(msg.id)
+                    self.stats["queue_sent"] += 1
+                    return True
                 else:
-                    # 送信失敗したらキューに戻す
-                    self.offline_queue.appendleft((topic, payload))
-                    failed_count += 1
-                    break
-            except Exception as e:
-                self.offline_queue.appendleft((topic, payload))
-                failed_count += 1
-                break
+                    return False
+            except Exception:
+                return False
+        else:
+            # メモリキュー
+            if not self.memory_queue:
+                return False
 
-        if sent_count > 0:
-            print(f"MQTT queue flushed: {sent_count} messages sent")
-            self.stats["queue_sent"] += sent_count
+            topic, payload = self.memory_queue.popleft()
+            try:
+                result = self.client.publish(topic, payload, qos=1)
+                if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                    self.stats["queue_sent"] += 1
+                    return True
+                else:
+                    self.memory_queue.appendleft((topic, payload))
+                    return False
+            except Exception:
+                self.memory_queue.appendleft((topic, payload))
+                return False
+
+    def _retry_loop(self):
+        """バックグラウンドでキューを定期的に処理"""
+        while self._retry_running:
+            try:
+                if self.connected and self._get_queue_size() > 0:
+                    success = self._process_one_from_queue()
+                    if success:
+                        remaining = self._get_queue_size()
+                        print(f"[Queue] Retry sent successfully (remaining: {remaining})")
+            except Exception:
+                pass
+            time.sleep(self._retry_interval)
+
+    def _start_retry_thread(self):
+        """再送スレッドを開始"""
+        if self._retry_thread is not None:
+            return
+        self._retry_running = True
+        import threading
+        self._retry_thread = threading.Thread(target=self._retry_loop, daemon=True)
+        self._retry_thread.start()
+
+    def _stop_retry_thread(self):
+        """再送スレッドを停止"""
+        self._retry_running = False
+        if self._retry_thread:
+            self._retry_thread.join(timeout=2.0)
+            self._retry_thread = None
 
     def connect(self) -> bool:
         """MQTTブローカーに接続"""
@@ -476,6 +566,10 @@ class MQTTPublisher:
         try:
             self.client.connect(self.config.broker, self.config.port, keepalive=60)
             self.client.loop_start()
+
+            # バックグラウンド再送スレッドを開始
+            self._start_retry_thread()
+
             # 接続完了を待つ
             for _ in range(10):
                 if self.connected:
@@ -488,7 +582,7 @@ class MQTTPublisher:
 
     def publish(self, message: StatusMessage, subtopic: str = "") -> bool:
         """
-        メッセージを送信（オフライン時はキューに蓄積）
+        メッセージを送信（オフライン時はキューに蓄積・ファイル永続化）
 
         Returns:
             True: 送信成功またはキューに追加成功
@@ -500,7 +594,7 @@ class MQTTPublisher:
 
         payload = message.to_json()
 
-        # オンライン時は直接送信
+        # オンライン時は直接送信を試みる（リアルタイム）
         if self.client and self.connected:
             try:
                 result = self.client.publish(topic, payload, qos=1)
@@ -510,14 +604,8 @@ class MQTTPublisher:
             except Exception as e:
                 print(f"MQTT publish error: {e}")
 
-        # オフライン時またはエラー時はキューに追加
-        if len(self.offline_queue) >= self.MAX_QUEUE_SIZE:
-            self.queue_overflow_count += 1
-            if self.queue_overflow_count == 1 or self.queue_overflow_count % 100 == 0:
-                print(f"Warning: MQTT offline queue full ({self.MAX_QUEUE_SIZE} messages). Oldest messages will be dropped.")
-
-        self.offline_queue.append((topic, payload))
-        self.stats["queued"] += 1
+        # オフライン時またはエラー時はキューに追加（ファイル永続化）
+        self._add_to_queue(topic, payload)
         return True  # キューに追加成功
 
     def try_reconnect(self):
@@ -537,23 +625,33 @@ class MQTTPublisher:
 
     def get_queue_size(self) -> int:
         """オフラインキューのサイズを取得"""
-        return len(self.offline_queue)
+        return self._get_queue_size()
 
     def get_stats(self) -> Dict:
         """統計情報を取得"""
         return {
             **self.stats,
-            "queue_size": len(self.offline_queue),
+            "queue_size": self._get_queue_size(),
             "queue_overflow": self.queue_overflow_count,
-            "connected": self.connected
+            "connected": self.connected,
+            "file_queue_enabled": self._use_file_queue
         }
 
     def disconnect(self):
         """切断"""
+        # 再送スレッドを停止
+        self._stop_retry_thread()
+
         if self.client:
-            # 残っているメッセージを送信試行
+            # 残っているメッセージを可能な限り送信
             if self.connected:
-                self._flush_queue()
+                sent = 0
+                while self._get_queue_size() > 0 and sent < 100:
+                    if not self._process_one_from_queue():
+                        break
+                    sent += 1
+                if sent > 0:
+                    print(f"MQTT: Flushed {sent} messages before disconnect")
 
             self.client.loop_stop()
             self.client.disconnect()
@@ -563,7 +661,10 @@ class MQTTPublisher:
         stats = self.get_stats()
         print(f"MQTT stats: sent={stats['sent']}, queued={stats['queued']}, "
               f"queue_sent={stats['queue_sent']}, failed={stats['failed']}, "
-              f"reconnects={stats['reconnects']}")
+              f"reconnects={stats['reconnects']}, pending={stats['queue_size']}")
+
+        if stats['queue_size'] > 0:
+            print(f"  Note: {stats['queue_size']} messages saved in queue (will be sent on next startup)")
 
 
 # =============================================================================

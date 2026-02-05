@@ -17,6 +17,7 @@ import os
 import sys
 import signal
 import time
+import threading
 from datetime import datetime
 
 import paho.mqtt.client as mqtt
@@ -24,15 +25,20 @@ import paho.mqtt.client as mqtt
 # 同じディレクトリのモジュールをインポート
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from equipment_status import load_equipment_config, EquipmentConfig
+from message_queue import FileQueue
 
 # グローバル変数
 oracle_connection = None
 equipment_config = None
 running = True
+oracle_queue = None  # Oracle送信用ファイルキュー
+retry_thread = None  # バックグラウンド再送スレッド
 stats = {
     "received": 0,
     "inserted": 0,
     "skipped": 0,  # 重複スキップ
+    "queued": 0,   # キューに保存された数
+    "queue_sent": 0,  # キューから再送された数
     "errors": 0,
     "last_message": None
 }
@@ -83,6 +89,86 @@ def init_oracle():
     except Exception as e:
         print(f"Oracle: 接続エラー - {e}")
         return False
+
+
+def init_queue():
+    """ファイルキューを初期化"""
+    global oracle_queue
+
+    queue_dir = os.path.join(os.path.dirname(__file__), "queue")
+    queue_file = os.path.join(queue_dir, "pending_oracle.jsonl")
+
+    oracle_queue = FileQueue(queue_file, max_retries=10000)
+
+    pending = oracle_queue.get_count()
+    if pending > 0:
+        print(f"Queue: {pending} messages pending from previous session")
+
+    return True
+
+
+def add_to_queue(data: dict):
+    """キューにデータを追加"""
+    global stats
+    if oracle_queue:
+        oracle_queue.add(data)
+        stats["queued"] += 1
+
+
+def process_queue_one() -> bool:
+    """キューから1件処理。成功時True、失敗/空ならFalse"""
+    global stats
+
+    if not oracle_queue or not oracle_connection:
+        return False
+
+    pending = oracle_queue.get_pending(limit=1)
+    if not pending:
+        return False
+
+    msg = pending[0]
+    data = msg.data
+
+    success, skipped = insert_to_oracle(data)
+
+    if success or skipped:
+        oracle_queue.remove(msg.id)
+        if success:
+            stats["queue_sent"] += 1
+        return True
+    else:
+        oracle_queue.increment_retry(msg.id)
+        return False
+
+
+def retry_loop():
+    """バックグラウンドでキューを定期的に処理"""
+    global running
+
+    retry_interval = 5.0  # 秒
+
+    while running:
+        try:
+            if oracle_queue and oracle_connection:
+                pending_count = oracle_queue.get_count()
+                if pending_count > 0:
+                    success = process_queue_one()
+                    if success:
+                        remaining = oracle_queue.get_count()
+                        print(f"[Queue] Retry sent to Oracle (remaining: {remaining})")
+        except Exception as e:
+            pass
+
+        time.sleep(retry_interval)
+
+
+def start_retry_thread():
+    """再送スレッドを開始"""
+    global retry_thread
+
+    retry_thread = threading.Thread(target=retry_loop, daemon=True)
+    retry_thread.start()
+    print("Queue: Background retry thread started")
 
 
 def insert_to_oracle(data: dict) -> tuple:
@@ -156,20 +242,28 @@ def on_message(client, userdata, msg):
         payload = msg.payload.decode('utf-8')
         data = json.loads(payload)
 
-        # Oracle に挿入
-        success, skipped = insert_to_oracle(data)
-        stats["last_message"] = datetime.now().strftime("%H:%M:%S")
         sta_no3 = data.get("sta_no3", "?")
         status = data.get("t1_status", "?")
+        stats["last_message"] = datetime.now().strftime("%H:%M:%S")
 
-        if success:
-            stats["inserted"] += 1
-            print(f"[{stats['last_message']}] {sta_no3}: status={status} → Oracle保存完了")
-        elif skipped:
-            stats["skipped"] += 1
-            print(f"[{stats['last_message']}] {sta_no3}: status={status} → スキップ(同一秒内の重複)")
+        # Oracle に挿入を試みる（リアルタイム）
+        if oracle_connection:
+            success, skipped = insert_to_oracle(data)
+
+            if success:
+                stats["inserted"] += 1
+                print(f"[{stats['last_message']}] {sta_no3}: status={status} → Oracle保存完了")
+            elif skipped:
+                stats["skipped"] += 1
+                print(f"[{stats['last_message']}] {sta_no3}: status={status} → スキップ(同一秒内の重複)")
+            else:
+                # 挿入失敗 → キューに保存
+                add_to_queue(data)
+                print(f"[{stats['last_message']}] {sta_no3}: status={status} → キューに保存(Oracle接続エラー)")
         else:
-            stats["errors"] += 1
+            # Oracle未接続 → キューに保存
+            add_to_queue(data)
+            print(f"[{stats['last_message']}] {sta_no3}: status={status} → キューに保存(Oracle未接続)")
 
     except json.JSONDecodeError as e:
         print(f"JSONパースエラー: {e}")
@@ -188,8 +282,11 @@ def signal_handler(signum, frame):
 
 def print_status():
     """現在のステータスを表示"""
+    pending = oracle_queue.get_count() if oracle_queue else 0
+
     print(f"\n--- ブリッジ統計 ---")
     print(f"受信: {stats['received']} | 保存: {stats['inserted']} | スキップ: {stats['skipped']} | エラー: {stats['errors']}")
+    print(f"キュー保存: {stats['queued']} | キュー再送: {stats['queue_sent']} | キュー残: {pending}")
     print(f"最終メッセージ: {stats['last_message'] or 'なし'}")
     print(f"-------------------\n")
 
@@ -209,9 +306,15 @@ def main():
     if not load_config():
         sys.exit(1)
 
+    # ファイルキュー初期化
+    init_queue()
+
     # Oracle接続
     if not init_oracle():
-        print("警告: Oracle接続なしで起動します（メッセージは破棄されます）")
+        print("警告: Oracle接続なしで起動します（メッセージはキューに保存されます）")
+
+    # バックグラウンド再送スレッド開始
+    start_retry_thread()
 
     # MQTTクライアント設定
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -262,6 +365,8 @@ def main():
 
     # 終了処理
     print("終了処理中...")
+    running = False  # 再送スレッド停止
+
     client.loop_stop()
     client.disconnect()
 
@@ -273,6 +378,11 @@ def main():
             pass
 
     print_status()
+
+    pending = oracle_queue.get_count() if oracle_queue else 0
+    if pending > 0:
+        print(f"Note: {pending} messages saved in queue (will be sent on next startup)")
+
     print("ブリッジサービスを終了しました")
 
 
