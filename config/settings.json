@@ -1,0 +1,55 @@
+{
+  "version": "2.0",
+  "created": "2026-02-05T12:27:50.063569",
+  "station": {
+    "sta_no1": "PLANT01",
+    "sta_no2": "LINE01"
+  },
+  "mqtt": {
+    "broker": "localhost",
+    "port": 1883,
+    "topic": "equipment/status",
+    "client_id": "color_detector",
+    "username": "",
+    "password": "",
+    "enabled": true
+  },
+  "oracle": {
+    "enabled": true,
+    "dsn": "eqstatusdb_low",
+    "user": "ADMIN",
+    "password": "P@ssw0rd1021",
+    "wallet_dir": "/home/sano/oracle_wallet",
+    "wallet_password": "P@ssw0rd1021",
+    "table_name": "HF1RCM01",
+    "pool_min": 1,
+    "pool_max": 5,
+    "pool_increment": 1
+  },
+  "oracle_publisher": {
+    "enabled": false,
+    "poll_interval_sec": 10,
+    "topic": "oracle/equipment",
+    "query_mode": "latest",
+    "sta_no3_filter": []
+  },
+  "blink_detection": {
+    "window_ms": 2000,
+    "min_changes": 3,
+    "min_interval_ms": 100,
+    "max_interval_ms": 1500
+  },
+  "regions": [
+    {
+      "id": 1,
+      "name": "設備1",
+      "x": 100,
+      "y": 100,
+      "width": 50,
+      "height": 50,
+      "threshold": 30,
+      "sta_no3": "EQUIP01",
+      "enabled": true
+    }
+  ]
+}

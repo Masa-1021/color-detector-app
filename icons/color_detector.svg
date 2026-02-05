@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="#2C3E50"/>
+
+  <!-- Camera/Eye shape -->
+  <ellipse cx="64" cy="64" rx="35" ry="25" fill="#34495E" stroke="#ECF0F1" stroke-width="3"/>
+
+  <!-- Color detection circles (RGB) -->
+  <circle cx="45" cy="64" r="12" fill="#E74C3C"/>
+  <circle cx="64" cy="64" r="12" fill="#2ECC71"/>
+  <circle cx="83" cy="64" r="12" fill="#F1C40F"/>
+
+  <!-- Scanning lines -->
+  <line x1="20" y1="40" x2="108" y2="40" stroke="#3498DB" stroke-width="2" stroke-dasharray="5,5"/>
+  <line x1="20" y1="88" x2="108" y2="88" stroke="#3498DB" stroke-width="2" stroke-dasharray="5,5"/>
+
+  <!-- Status indicator -->
+  <circle cx="100" cy="28" r="10" fill="#2ECC71" stroke="#27AE60" stroke-width="2"/>
+</svg>

@@ -1,0 +1,22 @@
+{
+  "mqtt": {
+    "broker": "192.168.32.213",
+    "port": 1883,
+    "topic": "equipment/status",
+    "username": "",
+    "password": ""
+  },
+  "oracle": {
+    "enabled": false
+  },
+  "equipment": {
+    "sta_no1": "FACTORY01",
+    "sta_no2": "LINE01",
+    "regions": [
+      {
+        "sta_no3": "REMOTE_EQ001",
+        "name": "設備1"
+      }
+    ]
+  }
+}
