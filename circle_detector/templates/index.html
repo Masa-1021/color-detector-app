@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Circle Detector</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="app-title">
+      Circle Detector
+      <small id="mode-label">編集モード</small>
+    </div>
+    <div class="header-actions">
+      <span id="mqtt-badge" class="badge badge-error">MQTT: 未接続</span>
+      <span id="oracle-badge" class="badge badge-error">DB: 未接続</span>
+      <button class="btn btn-secondary" onclick="saveConfig()">設定保存</button>
+      <button id="btn-toggle-mode" class="btn btn-primary" onclick="toggleMode()">
+        実行開始
+      </button>
+    </div>
+  </header>
+
+  <!-- Tab navigation (mobile) -->
+  <nav class="tab-nav" id="tab-nav">
+    <button class="active" onclick="showTab('video')">映像</button>
+    <button onclick="showTab('settings')">設定</button>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Video Panel -->
+    <div class="video-panel" id="video-panel">
+      <div class="video-container" id="video-container">
+        <img id="video-feed" src="" alt="カメラ映像">
+        <canvas id="overlay-canvas"></canvas>
+      </div>
+      <div class="video-toolbar" id="edit-toolbar"></div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settings-panel">
+
+      <!-- Edit Mode Settings -->
+      <div id="edit-settings">
+
+        <!-- Settings Tabs -->
+        <nav class="settings-tab-nav">
+          <button class="active" onclick="showSettingsTab('tab-basic')" data-tab="tab-basic">基本設定</button>
+          <button onclick="showSettingsTab('tab-groups')" data-tab="tab-groups">グループ</button>
+          <button onclick="showSettingsTab('tab-circle')" data-tab="tab-circle">
+            円設定
+            <span id="circle-tab-badge" class="tab-badge hidden"></span>
+          </button>
+        </nav>
+
+        <!-- Tab: 基本設定 -->
+        <div class="settings-tab-content active" id="tab-basic">
+          <div class="card">
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label">STA_NO1</label>
+                <select id="sta-no1-select" class="form-select" onchange="onStaNo1Change(this.value)">
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">送信モード</label>
+                <select id="send-mode-select" class="form-select" onchange="onSendModeChange(this.value)">
+                  <option value="on_change">変化時のみ</option>
+                  <option value="periodic">定期送信</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">MQTT ブローカー</label>
+                <div class="flex gap-2">
+                  <input type="text" class="form-input" id="mqtt-broker-input" placeholder="localhost" style="flex:1"
+                         onchange="onMqttConfigChange()">
+                  <input type="number" class="form-input" id="mqtt-port-input" placeholder="1883" style="width:80px"
+                         onchange="onMqttConfigChange()">
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">MQTT トピック</label>
+                <input type="text" class="form-input" id="mqtt-topic-input" placeholder="equipment/status"
+                       onchange="onMqttConfigChange()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">MQTT 接続状態</label>
+                <div class="flex items-center gap-2">
+                  <span id="mqtt-detail-status" class="badge badge-error">未接続</span>
+                  <button class="btn btn-primary btn-sm" id="btn-mqtt-connect" onclick="mqttConnect()">接続</button>
+                  <button class="btn btn-secondary btn-sm hidden" id="btn-mqtt-disconnect" onclick="mqttDisconnect()">切断</button>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Oracle DB (ブリッジ)</label>
+                <div id="bridge-status-detail">
+                  <div class="flex items-center gap-2">
+                    <span id="bridge-detail-status" class="badge badge-error">停止</span>
+                    <span id="oracle-detail-status" class="badge badge-error">DB未接続</span>
+                  </div>
+                  <div id="bridge-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: グループ -->
+        <div class="settings-tab-content" id="tab-groups">
+          <div class="flex items-center justify-between mb-2">
+            <span style="font-size:var(--sd-font-size-sm);color:var(--sd-color-text-secondary)">パトライト管理</span>
+            <button class="btn btn-primary btn-sm" onclick="addGroup()">+ 追加</button>
+          </div>
+          <div id="group-list"></div>
+        </div>
+
+        <!-- Tab: 円設定 -->
+        <div class="settings-tab-content" id="tab-circle">
+          <div id="circle-editor-content">
+            <div class="empty-state">映像上の円をクリックして選択<br><small>または「+ 円追加」で新規作成</small></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Run Mode Status -->
+      <div id="run-settings" class="hidden">
+        <div class="settings-section">
+          <div class="section-title">検出状態</div>
+          <div id="status-list" class="status-panel"></div>
+        </div>
+        <div class="settings-section">
+          <div class="section-title">送信ログ</div>
+          <div class="send-log" id="send-log">
+            <div class="empty-state">送信待機中...</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div id="footer-status">
+      最終更新: --
+    </div>
+  </footer>
+
+  <!-- Color Picker Modal -->
+  <div class="modal-backdrop" id="color-modal-backdrop">
+    <div class="modal" id="color-modal">
+      <div class="modal-header">
+        <h3>色の設定</h3>
+        <button class="modal-close" onclick="closeColorModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">色名</label>
+          <input type="text" class="form-input" id="color-name-input" placeholder="例: 赤">
+        </div>
+
+        <!-- HV Palette: X=Hue, Y=Value -->
+        <div class="form-group">
+          <label class="form-label">色相(横) &times; 明度(縦)  <span style="color:var(--sd-color-text-disabled);font-size:var(--sd-font-size-xs)">H:<span id="h-value">0</span></span></label>
+          <div class="picker-palette-wrap">
+            <canvas id="palette-canvas" width="360" height="256"></canvas>
+          </div>
+        </div>
+
+        <!-- Saturation slider -->
+        <div class="form-group">
+          <label class="form-label">彩度: <span id="sat-display">255</span></label>
+          <input type="range" id="sat-slider" min="0" max="255" value="255"
+                 style="width:100%" oninput="onSatSliderChange()">
+        </div>
+
+        <!-- Range sliders -->
+        <div class="form-group">
+          <label class="form-label">許容範囲</label>
+          <div class="picker-range-row">
+            <span class="picker-range-label">色相 &plusmn;</span>
+            <input type="range" id="hr-slider" min="1" max="90" value="10"
+                   oninput="onPickerNumberChange()">
+            <span id="hr-value" class="picker-range-num">10</span>
+          </div>
+          <div class="picker-range-row">
+            <span class="picker-range-label">明度 &plusmn;</span>
+            <input type="range" id="vr-slider" min="1" max="127" value="50"
+                   oninput="onPickerNumberChange()">
+            <span id="vr-value" class="picker-range-num">50</span>
+          </div>
+          <div class="picker-range-row">
+            <span class="picker-range-label">彩度 &plusmn;</span>
+            <input type="range" id="sr-slider" min="1" max="127" value="50"
+                   oninput="onPickerNumberChange()">
+            <span id="sr-value" class="picker-range-num">50</span>
+          </div>
+        </div>
+
+        <!-- Preview + numeric values -->
+        <div class="form-group">
+          <div class="picker-result">
+            <div id="color-preview" class="picker-preview-swatch"></div>
+            <div class="picker-values">
+              <div class="picker-val-row">
+                <label>H</label>
+                <input type="number" class="form-input" id="h-slider" min="0" max="179" value="0"
+                       onchange="onPickerNumberChange()">
+                <label style="width:auto;margin-left:4px">S</label>
+                <input type="number" class="form-input" id="s-min-input" min="0" max="255" value="50"
+                       onchange="onPickerNumberChange()" style="display:none">
+                <input type="number" class="form-input" id="s-max-input" min="0" max="255" value="255"
+                       onchange="onPickerNumberChange()" style="display:none">
+                <input type="number" class="form-input" id="s-center" min="0" max="255" value="255"
+                       onchange="onPickerNumberChange()">
+              </div>
+              <div class="picker-val-row">
+                <label>V</label>
+                <input type="number" class="form-input" id="v-center" min="0" max="255" value="200"
+                       onchange="onPickerNumberChange()">
+                <input type="number" class="form-input" id="v-min-input" min="0" max="255" value="50"
+                       onchange="onPickerNumberChange()" style="display:none">
+                <input type="number" class="form-input" id="v-max-input" min="0" max="255" value="255"
+                       onchange="onPickerNumberChange()" style="display:none">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeColorModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveColor()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rule Editor Modal -->
+  <div class="modal-backdrop" id="rule-modal-backdrop">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h3 id="rule-modal-title">ルール設定</h3>
+        <button class="modal-close" onclick="closeRuleModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="rule-list"></div>
+        <button class="btn btn-secondary btn-sm mt-4" onclick="addNewRule()">+ ルール追加</button>
+        <hr style="margin:var(--sd-spacing-4) 0;border:none;border-top:1px solid var(--sd-color-border);">
+        <div id="rule-form" class="hidden">
+          <div class="form-group">
+            <label class="form-label">優先度</label>
+            <input type="number" class="form-input" id="rule-priority" value="100" min="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">送信値</label>
+            <input type="number" class="form-input" id="rule-value" value="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">条件</label>
+            <div id="rule-conditions"></div>
+            <button class="btn btn-secondary btn-sm mt-2" onclick="addRuleCondition()">+ 条件追加</button>
+          </div>
+          <div class="flex justify-between mt-4">
+            <button class="btn btn-secondary" onclick="cancelRuleEdit()">キャンセル</button>
+            <button class="btn btn-primary" onclick="saveRule()">保存</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeRuleModal()">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>

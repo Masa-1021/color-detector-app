@@ -280,6 +280,39 @@ def signal_handler(signum, frame):
     running = False
 
 
+def write_status_file():
+    """ステータスをJSONファイルに書き出す（UIからの参照用）"""
+    status_file = os.path.join(os.path.dirname(__file__), "logs", "bridge_status.json")
+    pending = oracle_queue.get_count() if oracle_queue else 0
+    oracle_ok = False
+    if oracle_connection:
+        try:
+            oracle_connection.ping()
+            oracle_ok = True
+        except Exception:
+            oracle_ok = False
+
+    status_data = {
+        "running": running,
+        "oracle_connected": oracle_ok,
+        "mqtt_connected": True,  # ブリッジ起動中なら接続済み
+        "received": stats["received"],
+        "inserted": stats["inserted"],
+        "skipped": stats["skipped"],
+        "errors": stats["errors"],
+        "queued": stats["queued"],
+        "queue_sent": stats["queue_sent"],
+        "pending": pending,
+        "last_message": stats["last_message"],
+        "updated_at": datetime.now().isoformat()
+    }
+    try:
+        with open(status_file, 'w') as f:
+            json.dump(status_data, f)
+    except Exception:
+        pass
+
+
 def print_status():
     """現在のステータスを表示"""
     pending = oracle_queue.get_count() if oracle_queue else 0
@@ -349,11 +382,18 @@ def main():
     client.loop_start()
 
     last_status_time = time.time()
+    last_file_time = time.time()
     status_interval = 60  # 60秒ごとにステータス表示
+    file_interval = 5     # 5秒ごとにステータスファイル更新
 
     try:
         while running:
             time.sleep(1)
+
+            # ステータスファイル更新
+            if time.time() - last_file_time >= file_interval:
+                write_status_file()
+                last_file_time = time.time()
 
             # 定期的にステータス表示
             if time.time() - last_status_time >= status_interval:
@@ -366,6 +406,7 @@ def main():
     # 終了処理
     print("終了処理中...")
     running = False  # 再送スレッド停止
+    write_status_file()
 
     client.loop_stop()
     client.disconnect()

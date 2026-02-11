@@ -1,35 +1,29 @@
 #!/bin/bash
-# 色検知アプリ 起動スクリプト
-# Color Detector Application Launcher
+# Circle Detector 起動スクリプト
 #
 # Oracle保存を有効にするには、別ターミナルでブリッジを起動:
 #   ./run_bridge.sh
 
 APP_DIR="/home/sano/color_detector_app"
 LOG_DIR="$APP_DIR/logs"
+STARTUP_LOG="$LOG_DIR/startup.log"
 
-# ログディレクトリが存在しない場合は作成
+# ログディレクトリ作成
 mkdir -p "$LOG_DIR"
 
-# 環境変数設定（ディスプレイ）
-export DISPLAY=:0
+# 起動ログ
+echo "=== $(date) ===" >> "$STARTUP_LOG"
 
 # 作業ディレクトリに移動
 cd "$APP_DIR"
 
 # ブリッジ状態確認
 if pgrep -f "mqtt_oracle_bridge.py" > /dev/null; then
-    echo "MQTT-Oracleブリッジ: 起動中 (DB保存有効)"
+    echo "MQTT-Oracleブリッジ: 起動中 (DB保存有効)" | tee -a "$STARTUP_LOG"
 else
-    echo "MQTT-Oracleブリッジ: 停止中 (DB保存無効)"
-    echo "  DB保存するには別ターミナルで: ./run_bridge.sh"
+    echo "MQTT-Oracleブリッジ: 停止中 (DB保存無効)" | tee -a "$STARTUP_LOG"
 fi
 
-# アプリケーション起動
-# 設定は config/settings.json から読み込み
-python3 color_detector.py -i usb "$@"
-
-# オプション例:
-# ./run.sh                            # USBカメラ（設定ファイルから自動読み込み）
-# ./run.sh -i /dev/video0             # 特定のカメラデバイス
-# ./run.sh --mqtt                     # MQTT強制有効化
+# Circle Detector起動
+echo "Starting Circle Detector..." | tee -a "$STARTUP_LOG"
+python3 -m circle_detector.app "$@" 2>&1 | tee -a "$STARTUP_LOG"

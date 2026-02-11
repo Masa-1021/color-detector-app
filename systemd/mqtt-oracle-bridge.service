@@ -1,0 +1,15 @@
+[Unit]
+Description=MQTT to Oracle Bridge Service
+After=network.target mosquitto.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=sano
+WorkingDirectory=/home/sano/color_detector_app
+ExecStart=/usr/bin/python3 /home/sano/color_detector_app/mqtt_oracle_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

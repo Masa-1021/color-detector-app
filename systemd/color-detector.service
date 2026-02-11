@@ -1,0 +1,14 @@
+[Unit]
+Description=Color Detector Camera Service
+After=network.target
+
+[Service]
+Type=simple
+User=sano
+WorkingDirectory=/home/sano/color_detector_app
+ExecStart=/usr/bin/python3 /home/sano/color_detector_app/color_detector.py -i usb --mqtt --mqtt-broker 192.168.32.213
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
