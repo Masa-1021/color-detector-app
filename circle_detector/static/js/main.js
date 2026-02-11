@@ -105,6 +105,11 @@ async function loadConfig() {
     document.getElementById('mqtt-port-input').value = mqttConf.port || 1883;
     document.getElementById('mqtt-topic-input').value = mqttConf.topic || 'equipment/status';
 
+    // NTP settings
+    const ntpConf = data.ntp || {};
+    document.getElementById('ntp-server-input').value = ntpConf.server || 'ntp.nict.jp';
+    document.getElementById('ntp-interval-input').value = ntpConf.interval_sec || 3600;
+
     renderGroups();
     renderCircleEditor();
     redrawCanvas();
@@ -190,8 +195,9 @@ async function refreshMqttStatus() {
     // ignore
   }
 
-  // ブリッジ（Oracle DB）ステータスも取得
+  // ブリッジ（Oracle DB）+ NTP ステータスも取得
   refreshBridgeStatus();
+  refreshNtpStatus();
 }
 
 async function refreshBridgeStatus() {
@@ -226,6 +232,70 @@ async function refreshBridgeStatus() {
     const statsEl = document.getElementById('bridge-stats');
     if (bridgeRunning) {
       statsEl.textContent = `受信:${data.received} 保存:${data.inserted} エラー:${data.errors} キュー:${data.pending}`;
+    } else {
+      statsEl.textContent = '';
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// =============================================================================
+// NTP Operations
+// =============================================================================
+function onNtpConfigChange() {
+  const server = document.getElementById('ntp-server-input').value.trim();
+  const interval = parseInt(document.getElementById('ntp-interval-input').value) || 3600;
+  api('PUT', '/api/ntp', { server, interval_sec: interval });
+}
+
+async function ntpStart() {
+  onNtpConfigChange();
+  await api('POST', '/api/ntp/start');
+  showToast('NTP同期を有効化しました', 'success');
+  refreshNtpStatus();
+}
+
+async function ntpStop() {
+  await api('POST', '/api/ntp/stop');
+  showToast('NTP同期を無効化しました', 'success');
+  refreshNtpStatus();
+}
+
+async function ntpSyncNow() {
+  showToast('NTP同期中...', 'info');
+  onNtpConfigChange();
+  const result = await api('POST', '/api/ntp/sync');
+  if (result.success) {
+    const msg = result.adjusted
+      ? `同期完了 (オフセット: ${result.offset}s, 時刻補正済み)`
+      : `同期完了 (オフセット: ${result.offset}s)`;
+    showToast(msg, 'success');
+  } else {
+    showToast(`NTP同期失敗: ${result.error}`, 'error');
+  }
+  refreshNtpStatus();
+}
+
+async function refreshNtpStatus() {
+  try {
+    const data = await api('GET', '/api/ntp');
+    const running = data.running;
+
+    const badge = document.getElementById('ntp-detail-status');
+    badge.className = running ? 'badge badge-success' : 'badge badge-error';
+    badge.textContent = running ? '同期中' : '停止';
+
+    document.getElementById('btn-ntp-start').classList.toggle('hidden', running);
+    document.getElementById('btn-ntp-stop').classList.toggle('hidden', !running);
+
+    const statsEl = document.getElementById('ntp-stats');
+    if (data.last_sync) {
+      const t = new Date(data.last_sync).toLocaleTimeString('ja-JP');
+      const offset = data.last_offset !== null ? `${data.last_offset > 0 ? '+' : ''}${data.last_offset}s` : '-';
+      statsEl.textContent = `最終同期: ${t} | オフセット: ${offset} | 回数: ${data.sync_count}`;
+    } else if (data.last_error) {
+      statsEl.textContent = `エラー: ${data.last_error}`;
     } else {
       statsEl.textContent = '';
     }

@@ -24,6 +24,7 @@ from .camera import CameraManager
 from .detector import DetectionEngine
 from .rule_engine import RuleEngine
 from .mqtt_sender import MQTTSender
+from .ntp_sync import NTPSync
 
 
 def create_app(config_path: str = None) -> Flask:
@@ -51,6 +52,15 @@ def create_app(config_path: str = None) -> Flask:
     detector = DetectionEngine(config_mgr, config_mgr.get_blink_config())
     rule_engine = RuleEngine(config_mgr)
     mqtt_sender = MQTTSender(config_mgr)
+
+    # NTP 同期
+    ntp_conf = config_mgr.get_ntp_config()
+    ntp_sync = NTPSync(
+        server=ntp_conf.get('server', 'ntp.nict.jp'),
+        interval_sec=ntp_conf.get('interval_sec', 3600)
+    )
+    if ntp_conf.get('enabled', False):
+        ntp_sync.start()
 
     # 実行モード状態
     run_state = {
@@ -185,6 +195,45 @@ def create_app(config_path: str = None) -> Flask:
     def mqtt_disconnect():
         mqtt_sender.stop()
         return jsonify({"success": True})
+
+    # -----------------------------------------------------------------------
+    # NTP API
+    # -----------------------------------------------------------------------
+    @app.route('/api/ntp', methods=['GET'])
+    def get_ntp():
+        return jsonify(ntp_sync.get_status())
+
+    @app.route('/api/ntp', methods=['PUT'])
+    def update_ntp():
+        data = request.get_json()
+        if 'server' in data:
+            ntp_sync.update_config(server=data['server'])
+        if 'interval_sec' in data:
+            ntp_sync.update_config(interval_sec=int(data['interval_sec']))
+        # 設定を保存
+        config_mgr.set_ntp_config(
+            server=ntp_sync.server,
+            interval_sec=ntp_sync.interval_sec,
+            enabled=ntp_sync.running
+        )
+        return jsonify({"success": True})
+
+    @app.route('/api/ntp/start', methods=['POST'])
+    def ntp_start():
+        ntp_sync.start()
+        config_mgr.set_ntp_config(enabled=True)
+        return jsonify({"success": True})
+
+    @app.route('/api/ntp/stop', methods=['POST'])
+    def ntp_stop():
+        ntp_sync.stop()
+        config_mgr.set_ntp_config(enabled=False)
+        return jsonify({"success": True})
+
+    @app.route('/api/ntp/sync', methods=['POST'])
+    def ntp_sync_now():
+        result = ntp_sync.sync_once()
+        return jsonify(result)
 
     @app.route('/api/sta_no1_options', methods=['GET'])
     def get_sta_no1_options():
@@ -551,6 +600,7 @@ def create_app(config_path: str = None) -> Flask:
     def shutdown():
         """アプリ終了時のクリーンアップ"""
         run_state["running"] = False
+        ntp_sync.stop()
         mqtt_sender.stop()
         camera.stop()
 

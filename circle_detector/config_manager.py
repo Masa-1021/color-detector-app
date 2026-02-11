@@ -488,6 +488,20 @@ class ConfigManager:
             self.config['blink_detection'] = {}
         self.config['blink_detection'].update(kwargs)
 
+    def get_ntp_config(self) -> dict:
+        """NTP同期設定を取得"""
+        return self.config.get('ntp', {
+            'enabled': False,
+            'server': 'ntp.nict.jp',
+            'interval_sec': 3600
+        })
+
+    def set_ntp_config(self, **kwargs):
+        """NTP同期設定を更新"""
+        if 'ntp' not in self.config:
+            self.config['ntp'] = {}
+        self.config['ntp'].update(kwargs)
+
     # -------------------------------------------------------------------------
     # API用変換
     # -------------------------------------------------------------------------
