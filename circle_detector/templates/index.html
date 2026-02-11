@@ -51,6 +51,7 @@
         <!-- Settings Tabs -->
         <nav class="settings-tab-nav">
           <button class="active" onclick="showSettingsTab('tab-basic')" data-tab="tab-basic">基本設定</button>
+          <button onclick="showSettingsTab('tab-connection')" data-tab="tab-connection">接続設定</button>
           <button onclick="showSettingsTab('tab-groups')" data-tab="tab-groups">グループ</button>
           <button onclick="showSettingsTab('tab-circle')" data-tab="tab-circle">
             円設定
@@ -67,15 +68,25 @@
                 <select id="sta-no1-select" class="form-select" onchange="onStaNo1Change(this.value)">
                 </select>
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom:0">
                 <label class="form-label">送信モード</label>
                 <select id="send-mode-select" class="form-select" onchange="onSendModeChange(this.value)">
                   <option value="on_change">変化時のみ</option>
                   <option value="periodic">定期送信</option>
                 </select>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: 接続設定 -->
+        <div class="settings-tab-content" id="tab-connection">
+          <div class="card">
+            <div class="card-body">
+              <!-- MQTT -->
+              <div class="section-title">MQTT</div>
               <div class="form-group">
-                <label class="form-label">MQTT ブローカー</label>
+                <label class="form-label">ブローカー</label>
                 <div class="flex gap-2">
                   <input type="text" class="form-input" id="mqtt-broker-input" placeholder="localhost" style="flex:1"
                          onchange="onMqttConfigChange()">
@@ -84,31 +95,85 @@
                 </div>
               </div>
               <div class="form-group">
-                <label class="form-label">MQTT トピック</label>
+                <label class="form-label">トピック</label>
                 <input type="text" class="form-input" id="mqtt-topic-input" placeholder="equipment/status"
                        onchange="onMqttConfigChange()">
               </div>
               <div class="form-group">
-                <label class="form-label">MQTT 接続状態</label>
+                <label class="form-label">接続状態</label>
                 <div class="flex items-center gap-2">
                   <span id="mqtt-detail-status" class="badge badge-error">未接続</span>
                   <button class="btn btn-primary btn-sm" id="btn-mqtt-connect" onclick="mqttConnect()">接続</button>
                   <button class="btn btn-secondary btn-sm hidden" id="btn-mqtt-disconnect" onclick="mqttDisconnect()">切断</button>
                 </div>
               </div>
+
+              <hr style="margin:var(--sd-spacing-3) 0;border:none;border-top:1px solid var(--sd-color-border);">
+
+              <!-- Oracle DB -->
+              <div class="section-title">Oracle DB</div>
               <div class="form-group">
-                <label class="form-label">Oracle DB (ブリッジ)</label>
-                <div id="bridge-status-detail">
-                  <div class="flex items-center gap-2">
-                    <span id="bridge-detail-status" class="badge badge-error">停止</span>
-                    <span id="oracle-detail-status" class="badge badge-error">DB未接続</span>
-                  </div>
-                  <div id="bridge-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
+                <label class="form-label">DSN</label>
+                <input type="text" class="form-input" id="oracle-dsn-input" placeholder="eqstatusdb_low"
+                       onchange="onOracleConfigChange()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">ユーザー</label>
+                <input type="text" class="form-input" id="oracle-user-input" placeholder="ADMIN"
+                       onchange="onOracleConfigChange()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">パスワード</label>
+                <div class="input-with-toggle">
+                  <input type="password" class="form-input" id="oracle-password-input" placeholder="パスワード"
+                         onchange="onOracleConfigChange()">
+                  <button type="button" class="btn-pw-toggle" onclick="togglePasswordVisibility(this)">表示</button>
                 </div>
               </div>
-              <hr style="margin:var(--sd-spacing-3) 0;border:none;border-top:1px solid var(--sd-color-border);">
               <div class="form-group">
-                <label class="form-label">NTP 時刻同期</label>
+                <label class="form-label">
+                  <label class="toggle-label">
+                    <input type="checkbox" id="oracle-use-wallet" onchange="toggleWalletFields()"> Wallet認証を使用
+                  </label>
+                </label>
+              </div>
+              <div id="oracle-wallet-section" class="hidden">
+                <div class="form-group">
+                  <label class="form-label">Walletディレクトリ</label>
+                  <input type="text" class="form-input" id="oracle-wallet-dir-input" placeholder="/home/sano/oracle_wallet/"
+                         onchange="onOracleConfigChange()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Walletパスワード</label>
+                  <div class="input-with-toggle">
+                    <input type="password" class="form-input" id="oracle-wallet-pw-input" placeholder="Walletパスワード"
+                           onchange="onOracleConfigChange()">
+                    <button type="button" class="btn-pw-toggle" onclick="togglePasswordVisibility(this)">表示</button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">テーブル名</label>
+                <input type="text" class="form-input" id="oracle-table-input" placeholder="HF1RCM01"
+                       onchange="onOracleConfigChange()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">接続状態</label>
+                <div class="flex items-center gap-2">
+                  <span id="bridge-detail-status" class="badge badge-error">停止</span>
+                  <span id="oracle-detail-status" class="badge badge-error">DB未接続</span>
+                  <button class="btn btn-primary btn-sm" onclick="testOracleConnection()">接続テスト</button>
+                </div>
+                <div id="bridge-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
+                <div id="oracle-test-result" style="font-size:var(--sd-font-size-xs);margin-top:var(--sd-spacing-1)"></div>
+              </div>
+
+              <hr style="margin:var(--sd-spacing-3) 0;border:none;border-top:1px solid var(--sd-color-border);">
+
+              <!-- NTP -->
+              <div class="section-title">NTP 時刻同期</div>
+              <div class="form-group">
+                <label class="form-label">サーバー / 同期間隔</label>
                 <div class="flex gap-2">
                   <input type="text" class="form-input" id="ntp-server-input" placeholder="ntp.nict.jp" style="flex:1"
                          onchange="onNtpConfigChange()">

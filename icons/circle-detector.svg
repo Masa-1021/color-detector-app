@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded square -->
+  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
+  <!-- Outer lens ring -->
+  <circle cx="128" cy="128" r="88" fill="none" stroke="#475569" stroke-width="4"/>
+  <circle cx="128" cy="128" r="80" fill="url(#lens)" stroke="#64748B" stroke-width="2"/>
+  <!-- Inner dark area -->
+  <circle cx="128" cy="128" r="68" fill="#0F172A"/>
+  <!-- Crosshair lines -->
+  <line x1="128" y1="52" x2="128" y2="82" stroke="#94A3B8" stroke-width="1.5" opacity="0.6"/>
+  <line x1="128" y1="174" x2="128" y2="204" stroke="#94A3B8" stroke-width="1.5" opacity="0.6"/>
+  <line x1="52" y1="128" x2="82" y2="128" stroke="#94A3B8" stroke-width="1.5" opacity="0.6"/>
+  <line x1="174" y1="128" x2="204" y2="128" stroke="#94A3B8" stroke-width="1.5" opacity="0.6"/>
+  <!-- Detected colored circles -->
+  <!-- Red circle (top-left) -->
+  <circle cx="102" cy="102" r="18" fill="#EF4444" opacity="0.9"/>
+  <circle cx="102" cy="102" r="18" fill="none" stroke="#FCA5A5" stroke-width="1.5"/>
+  <!-- Green circle (top-right) -->
+  <circle cx="154" cy="102" r="14" fill="#22C55E" opacity="0.9"/>
+  <circle cx="154" cy="102" r="14" fill="none" stroke="#86EFAC" stroke-width="1.5"/>
+  <!-- Blue circle (bottom-left) -->
+  <circle cx="106" cy="154" r="16" fill="#3B82F6" opacity="0.9"/>
+  <circle cx="106" cy="154" r="16" fill="none" stroke="#93C5FD" stroke-width="1.5"/>
+  <!-- Yellow circle (bottom-right) -->
+  <circle cx="152" cy="150" r="12" fill="#EAB308" opacity="0.9"/>
+  <circle cx="152" cy="150" r="12" fill="none" stroke="#FDE047" stroke-width="1.5"/>
+  <!-- Center crosshair dot -->
+  <circle cx="128" cy="128" r="3" fill="#94A3B8" opacity="0.5"/>
+  <!-- Corner brackets (viewfinder) -->
+  <path d="M68 88 L68 68 L88 68" fill="none" stroke="#0EA5E9" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M188 68 L168 68 L168 68" fill="none" stroke="#0EA5E9" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M168 68 L188 68 L188 88" fill="none" stroke="#0EA5E9" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M188 168 L188 188 L168 188" fill="none" stroke="#0EA5E9" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M88 188 L68 188 L68 168" fill="none" stroke="#0EA5E9" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

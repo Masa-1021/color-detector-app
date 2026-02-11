@@ -153,7 +153,7 @@ class MQTTSender:
                 return True
         return False
 
-    def send(self, group: Group, value: int, force: bool = False) -> bool:
+    def send(self, group: Group, value: int, force: bool = False):
         """
         グループの値を送信
 
@@ -163,14 +163,14 @@ class MQTTSender:
             force: 変化がなくても強制送信するか
 
         Returns:
-            送信成功かどうか
+            'sent' = 送信成功, 'skipped' = 変化なしスキップ, 'failed' = 送信失敗
         """
         # 変化チェック（on_changeモード）
         if not force:
             send_mode = self.config.get_detection_config().get('send_mode', 'on_change')
             if send_mode == 'on_change':
                 if self._last_values.get(group.id) == value:
-                    return True  # 変化なし、送信不要
+                    return 'skipped'  # 変化なし、送信不要
 
         self._last_values[group.id] = value
 
@@ -182,7 +182,8 @@ class MQTTSender:
             t1_status=value
         )
 
-        return self._send_data(data)
+        success = self._send_data(data)
+        return 'sent' if success else 'failed'
 
     def _send_data(self, data: SendData) -> bool:
         """データを送信（失敗時はキュー保存）"""

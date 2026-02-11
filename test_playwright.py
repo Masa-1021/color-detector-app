@@ -366,7 +366,84 @@ def run_tests():
         # ------------------------------------------------------------------
         # 14. カメラステータス
         # ------------------------------------------------------------------
-        print("\n--- 14. カメラAPI ---")
+        # ------------------------------------------------------------------
+        # 14b. Oracle DB パスワード表示/非表示テスト
+        # ------------------------------------------------------------------
+        print("\n--- 14b. Oracle DBパスワード表示/非表示 ---")
+
+        # 接続設定タブに切り替え
+        page.goto(BASE_URL)
+        page.wait_for_load_state("networkidle")
+        page.click('button[data-tab="tab-connection"]')
+        page.wait_for_timeout(500)
+
+        # パスワード欄の初期状態: type=password, 実パスワードが入っている
+        pw_input = page.locator('#oracle-password-input')
+        pw_type_before = pw_input.get_attribute('type')
+        pw_value_before = pw_input.input_value()
+        log("パスワード初期状態: type=password",
+            pw_type_before == 'password',
+            f"type={pw_type_before}")
+        log("パスワード初期状態: 実パスワードが入っている",
+            len(pw_value_before) > 0 and pw_value_before != '********',
+            f"value length={len(pw_value_before)}")
+
+        # 「表示」ボタンをクリック → type=text, 実パスワードが見える
+        toggle_btn = pw_input.locator('..').locator('button.btn-pw-toggle')
+        toggle_btn.click()
+        page.wait_for_timeout(200)
+
+        pw_type_after = pw_input.get_attribute('type')
+        pw_value_after = pw_input.input_value()
+        btn_text_after = toggle_btn.text_content().strip()
+        log("表示ボタン押下後: type=text",
+            pw_type_after == 'text',
+            f"type={pw_type_after}")
+        log("表示ボタン押下後: 実パスワードが表示される",
+            pw_value_after == pw_value_before and pw_value_after != '********',
+            f"value='{pw_value_after}'")
+        log("表示ボタン押下後: ボタン文字=非表示",
+            btn_text_after == '非表示',
+            f"text='{btn_text_after}'")
+
+        # 「非表示」ボタンをクリック → type=password に戻る
+        toggle_btn.click()
+        page.wait_for_timeout(200)
+
+        pw_type_hidden = pw_input.get_attribute('type')
+        pw_value_hidden = pw_input.input_value()
+        btn_text_hidden = toggle_btn.text_content().strip()
+        log("非表示ボタン押下後: type=password",
+            pw_type_hidden == 'password',
+            f"type={pw_type_hidden}")
+        log("非表示ボタン押下後: 値が保持されている",
+            pw_value_hidden == pw_value_before,
+            f"value preserved={pw_value_hidden == pw_value_before}")
+        log("非表示ボタン押下後: ボタン文字=表示",
+            btn_text_hidden == '表示',
+            f"text='{btn_text_hidden}'")
+
+        # ------------------------------------------------------------------
+        # 14c. Oracle DB 接続テスト
+        # ------------------------------------------------------------------
+        print("\n--- 14c. Oracle DB 接続テスト ---")
+
+        # 接続テストボタンをクリック
+        test_btn = page.locator('button:has-text("接続テスト")')
+        test_btn.click()
+
+        # 結果を待つ
+        result_el = page.locator('#oracle-test-result')
+        page.wait_for_timeout(5000)
+        test_result_text = result_el.text_content().strip()
+        log("接続テスト: 成功メッセージ",
+            '接続成功' in test_result_text,
+            f"result='{test_result_text}'")
+
+        # ------------------------------------------------------------------
+        # 15. カメラステータス
+        # ------------------------------------------------------------------
+        print("\n--- 15. カメラAPI ---")
 
         cam_status = page.evaluate("() => fetch('/api/camera/status').then(r => r.json())")
         log("GET /api/camera/status", "running" in cam_status,

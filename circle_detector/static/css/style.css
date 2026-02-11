@@ -147,6 +147,42 @@ body {
   box-shadow: 0 0 0 3px var(--sd-color-primary-light);
 }
 
+/* Password toggle input wrapper */
+.input-with-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-with-toggle .form-input {
+  padding-right: 52px;
+}
+.btn-pw-toggle {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--sd-color-primary);
+  padding: 2px 4px;
+  font-size: var(--sd-font-size-xs);
+  white-space: nowrap;
+}
+.btn-pw-toggle:hover { color: var(--sd-color-primary-hover); }
+
+/* Wallet checkbox */
+.toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sd-spacing-2);
+  cursor: pointer;
+  font-size: var(--sd-font-size-sm);
+  color: var(--sd-color-text-secondary);
+}
+.toggle-label input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--sd-color-primary);
+}
+
 /* === Cards === */
 .card {
   background: var(--sd-color-background);
@@ -360,6 +396,22 @@ body {
   color: var(--sd-color-primary);
   border-radius: var(--sd-radius-full);
   font-size: var(--sd-font-size-xs);
+}
+
+.group-rules-section {
+  margin: var(--sd-spacing-2) 0;
+  padding-top: var(--sd-spacing-2);
+  border-top: 1px solid var(--sd-color-border);
+}
+.rule-summary {
+  font-size: var(--sd-font-size-xs);
+  padding: var(--sd-spacing-1) 0;
+  color: var(--sd-color-text-secondary);
+}
+.rule-summary .badge {
+  font-size: 0.6875rem;
+  padding: 1px 5px;
+  margin-right: var(--sd-spacing-1);
 }
 
 /* Circle editor (selected circle) */

@@ -114,6 +114,7 @@ async function loadConfig() {
     renderCircleEditor();
     redrawCanvas();
     refreshMqttStatus();
+    loadOracleConfig();
   } catch (e) {
     showToast('設定の読み込みに失敗しました', 'error');
   }
@@ -128,9 +129,9 @@ function onStaNo1Change(value) {
   api('PUT', '/api/sta_no1', { sta_no1: value });
 }
 function onSendModeChange(value) {
-  // Update local state; will be saved with saveConfig
   if (!state.config.detection) state.config.detection = {};
   state.config.detection.send_mode = value;
+  api('PUT', '/api/detection', { send_mode: value });
 }
 
 // =============================================================================
@@ -301,6 +302,81 @@ async function refreshNtpStatus() {
     }
   } catch (e) {
     // ignore
+  }
+}
+
+// =============================================================================
+// Oracle DB Config
+// =============================================================================
+async function loadOracleConfig() {
+  try {
+    const data = await api('GET', '/api/oracle');
+    document.getElementById('oracle-dsn-input').value = data.dsn || '';
+    document.getElementById('oracle-user-input').value = data.user || '';
+    document.getElementById('oracle-password-input').value = data.password || '';
+    document.getElementById('oracle-wallet-dir-input').value = data.wallet_dir || '';
+    document.getElementById('oracle-wallet-pw-input').value = data.wallet_password || '';
+    document.getElementById('oracle-table-input').value = data.table_name || '';
+
+    // Wallet checkbox (use_walletフラグ、未設定ならwallet_dirの有無で判定)
+    const useWallet = data.use_wallet !== undefined ? !!data.use_wallet : !!(data.wallet_dir);
+    document.getElementById('oracle-use-wallet').checked = useWallet;
+    document.getElementById('oracle-wallet-section').classList.toggle('hidden', !useWallet);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function toggleWalletFields() {
+  const checked = document.getElementById('oracle-use-wallet').checked;
+  document.getElementById('oracle-wallet-section').classList.toggle('hidden', !checked);
+  onOracleConfigChange();
+}
+
+function togglePasswordVisibility(btn) {
+  const input = btn.parentElement.querySelector('input');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '非表示';
+  } else {
+    input.type = 'password';
+    btn.textContent = '表示';
+  }
+}
+
+function onOracleConfigChange() {
+  const data = {
+    dsn: document.getElementById('oracle-dsn-input').value.trim(),
+    user: document.getElementById('oracle-user-input').value.trim(),
+    password: document.getElementById('oracle-password-input').value,
+    table_name: document.getElementById('oracle-table-input').value.trim(),
+    wallet_dir: document.getElementById('oracle-wallet-dir-input').value.trim(),
+    wallet_password: document.getElementById('oracle-wallet-pw-input').value,
+    use_wallet: document.getElementById('oracle-use-wallet').checked,
+  };
+  return api('PUT', '/api/oracle', data);
+}
+
+async function testOracleConnection() {
+  // Save current form values first, wait for completion
+  await onOracleConfigChange();
+
+  const resultEl = document.getElementById('oracle-test-result');
+  resultEl.textContent = '接続テスト中...';
+  resultEl.style.color = 'var(--sd-color-text-secondary)';
+
+  try {
+    const result = await api('POST', '/api/oracle/test');
+    if (result.success) {
+      resultEl.textContent = result.message;
+      resultEl.style.color = 'var(--sd-color-success)';
+    } else {
+      resultEl.textContent = result.message;
+      resultEl.style.color = 'var(--sd-color-error)';
+    }
+  } catch (e) {
+    resultEl.textContent = '接続テストに失敗しました';
+    resultEl.style.color = 'var(--sd-color-error)';
   }
 }
 
@@ -1076,11 +1152,28 @@ function renderGroups() {
       `<span class="circle-tag">${c.name || '円' + c.id}</span>`
     ).join('');
 
+    // ルール一覧
+    const groupRules = state.rules
+      .filter(r => r.group_id === g.id)
+      .sort((a, b) => b.priority - a.priority);
+    const rulesHtml = groupRules.length > 0
+      ? groupRules.map(r => {
+          const desc = r.conditions.map(c => {
+            const ci = state.circles.find(x => x.id === c.circle_id);
+            const name = ci ? (ci.name || `円${c.circle_id}`) : `円${c.circle_id}`;
+            let s = `${name}(${c.circle_id})=${c.color}`;
+            if (c.blinking) s += '(点滅)';
+            return s;
+          }).join(' + ');
+          return `<div class="rule-summary"><span class="badge badge-info">P:${r.priority}</span> ${desc} &rarr; ${r.value}</div>`;
+        }).join('')
+      : '<span style="color:var(--sd-color-text-disabled)">ルールなし</span>';
+
     return `
       <div class="group-item" id="group-${g.id}">
         <div class="group-item-header">
           <span class="group-item-title" onclick="toggleGroup(${g.id})">${g.name}
-            <span class="group-item-count">${circles.length}円</span>
+            <span class="group-item-count">${circles.length}円 ${groupRules.length}ルール</span>
           </span>
           <button class="btn-icon-delete" onclick="deleteGroup(${g.id})" title="削除">&times;</button>
         </div>
@@ -1102,6 +1195,10 @@ function renderGroups() {
             <input type="number" value="${g.default_value}" onchange="updateGroup(${g.id},{default_value:parseInt(this.value)})">
           </div>
           <div class="group-circles">${circleTags || '<span style="color:var(--sd-color-text-disabled)">円なし</span>'}</div>
+          <div class="group-rules-section">
+            <div style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-bottom:var(--sd-spacing-1)">ルール</div>
+            ${rulesHtml}
+          </div>
           <div class="mt-2">
             <button class="btn btn-secondary btn-sm" onclick="openRuleModal(${g.id})">ルール設定</button>
           </div>
@@ -1149,6 +1246,7 @@ function openRuleModal(groupId) {
 
 function closeRuleModal() {
   document.getElementById('rule-modal-backdrop').classList.remove('active');
+  renderGroups();
 }
 
 function renderRuleList() {
@@ -1164,7 +1262,9 @@ function renderRuleList() {
 
   el.innerHTML = groupRules.map(r => {
     const desc = r.conditions.map(c => {
-      let s = `円${c.circle_id}=${c.color}`;
+      const circle = state.circles.find(ci => ci.id === c.circle_id);
+      const name = circle ? (circle.name || `円${c.circle_id}`) : `円${c.circle_id}`;
+      let s = `${name}(${c.circle_id})=${c.color}`;
       if (c.blinking) s += '(点滅)';
       return s;
     }).join(' + ');
@@ -1215,30 +1315,38 @@ function addRuleCondition(existing = null) {
   const el = document.getElementById('rule-conditions');
   const groupCircles = state.circles.filter(c => c.group_id === state.editingRuleGroupId);
 
-  // Collect all colors from group circles
-  const allColors = new Set();
-  groupCircles.forEach(c => (c.colors || []).forEach(col => allColors.add(col.name)));
-
   const circleOpts = groupCircles.map(c =>
     `<option value="${c.id}" ${existing && existing.circle_id === c.id ? 'selected' : ''}>${c.name || '円' + c.id}</option>`
-  ).join('');
-
-  const colorOpts = [...allColors].map(name =>
-    `<option value="${name}" ${existing && existing.color === name ? 'selected' : ''}>${name}</option>`
   ).join('');
 
   const div = document.createElement('div');
   div.className = 'flex items-center gap-2 mb-2';
   div.innerHTML = `
-    <select class="form-select cond-circle" style="width:auto;flex:1">${circleOpts}</select>
+    <select class="form-select cond-circle" style="width:auto;flex:1"
+            onchange="updateCondColorOptions(this)">${circleOpts}</select>
     <span>=</span>
-    <select class="form-select cond-color" style="width:auto;flex:1">${colorOpts}</select>
+    <select class="form-select cond-color" style="width:auto;flex:1"></select>
     <label style="font-size:var(--sd-font-size-xs);white-space:nowrap">
       <input type="checkbox" class="cond-blink" ${existing && existing.blinking ? 'checked' : ''}> 点滅
     </label>
     <span class="color-item-delete" onclick="this.parentElement.remove()">&times;</span>
   `;
   el.appendChild(div);
+
+  // 選択された円の色でプルダウンを初期化
+  const circleSelect = div.querySelector('.cond-circle');
+  updateCondColorOptions(circleSelect, existing ? existing.color : null);
+}
+
+function updateCondColorOptions(circleSelect, selectedColor = null) {
+  const circleId = parseInt(circleSelect.value);
+  const circle = state.circles.find(c => c.id === circleId);
+  const colors = circle ? (circle.colors || []) : [];
+  const colorSelect = circleSelect.closest('div').querySelector('.cond-color');
+
+  colorSelect.innerHTML = colors.map(c =>
+    `<option value="${c.name}" ${c.name === selectedColor ? 'selected' : ''}>${c.name}</option>`
+  ).join('');
 }
 
 async function saveRule() {

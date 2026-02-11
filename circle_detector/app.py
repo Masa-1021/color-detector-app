@@ -139,6 +139,101 @@ def create_app(config_path: str = None) -> Flask:
                 "pending": 0
             })
 
+    # -----------------------------------------------------------------------
+    # Oracle DB 設定 API
+    # -----------------------------------------------------------------------
+    def _get_settings_path():
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config", "settings.json"
+        )
+
+    import threading as _threading
+    _settings_lock = _threading.Lock()
+
+    def _load_settings():
+        import json as _json
+        try:
+            with open(_get_settings_path(), 'r') as f:
+                return _json.load(f)
+        except (FileNotFoundError, _json.JSONDecodeError):
+            return {}
+
+    def _save_settings(settings):
+        import json as _json
+        import tempfile as _tempfile
+        path = _get_settings_path()
+        dir_path = os.path.dirname(path)
+        os.makedirs(dir_path, exist_ok=True)
+        with _settings_lock:
+            fd, tmp = _tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    _json.dump(settings, f, indent=2, ensure_ascii=False)
+                os.replace(tmp, path)
+            except Exception:
+                os.unlink(tmp)
+                raise
+
+    @app.route('/api/oracle', methods=['GET'])
+    def get_oracle_config():
+        settings = _load_settings()
+        oracle = settings.get('oracle', {})
+        return jsonify(oracle)
+
+    @app.route('/api/oracle', methods=['PUT'])
+    def update_oracle_config():
+        data = request.get_json()
+        settings = _load_settings()
+        if 'oracle' not in settings:
+            settings['oracle'] = {}
+        for key, val in data.items():
+            settings['oracle'][key] = val
+        _save_settings(settings)
+        return jsonify({"success": True})
+
+    @app.route('/api/oracle/test', methods=['POST'])
+    def test_oracle_connection():
+        settings = _load_settings()
+        oracle = settings.get('oracle', {})
+
+        # リクエストに含まれる値で上書き（テスト用）
+        data = request.get_json(silent=True) or {}
+        for key, val in data.items():
+            oracle[key] = val
+
+        try:
+            import oracledb
+            conn_params = {
+                'user': oracle.get('user', ''),
+                'password': oracle.get('password', ''),
+                'dsn': oracle.get('dsn', ''),
+            }
+            use_wallet = oracle.get('use_wallet', bool(oracle.get('wallet_dir', '').strip()))
+            if use_wallet:
+                wallet_dir = oracle.get('wallet_dir', '').strip()
+                if wallet_dir:
+                    conn_params['config_dir'] = wallet_dir
+                    conn_params['wallet_location'] = wallet_dir
+                    wallet_pw = oracle.get('wallet_password', '')
+                    if wallet_pw:
+                        conn_params['wallet_password'] = wallet_pw
+            conn = oracledb.connect(**conn_params)
+            cursor = conn.cursor()
+            table = oracle.get('table_name', 'HF1RCM01')
+            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+            count = cursor.fetchone()[0]
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "success": True,
+                "message": f"接続成功 (テーブル {table}: {count}件)"
+            })
+        except ImportError:
+            return jsonify({"success": False, "message": "oracledb モジュール未インストール"})
+        except Exception as e:
+            return jsonify({"success": False, "message": str(e)})
+
     @app.route('/api/mqtt', methods=['PUT'])
     def update_mqtt():
         data = request.get_json()
@@ -234,6 +329,12 @@ def create_app(config_path: str = None) -> Flask:
     def ntp_sync_now():
         result = ntp_sync.sync_once()
         return jsonify(result)
+
+    @app.route('/api/detection', methods=['PUT'])
+    def update_detection():
+        data = request.get_json()
+        config_mgr.set_detection_config(**data)
+        return jsonify({"success": True})
 
     @app.route('/api/sta_no1_options', methods=['GET'])
     def get_sta_no1_options():
@@ -534,9 +635,6 @@ def create_app(config_path: str = None) -> Flask:
     # -----------------------------------------------------------------------
     def _detection_loop():
         """実行モードの検出ループ"""
-        detection_conf = config_mgr.get_detection_config()
-        send_mode = detection_conf.get('send_mode', 'on_change')
-        send_interval = detection_conf.get('send_interval_sec', 1)
         last_periodic_send = 0
 
         while run_state["running"]:
@@ -553,7 +651,11 @@ def create_app(config_path: str = None) -> Flask:
             group_values = rule_engine.evaluate_all_groups(results)
             run_state["group_values"] = group_values
 
-            # 送信
+            # 送信（設定を毎回読み取り、実行中の切り替えに対応）
+            detection_conf = config_mgr.get_detection_config()
+            send_mode = detection_conf.get('send_mode', 'on_change')
+            send_interval = detection_conf.get('send_interval_sec', 1)
+
             now = time.time()
             should_send = False
 
@@ -569,16 +671,17 @@ def create_app(config_path: str = None) -> Flask:
                 for group in config_mgr.groups:
                     value = group_values.get(group.id, group.default_value)
                     force = (send_mode == 'periodic')
-                    sent = mqtt_sender.send(group, value, force=force)
+                    result = mqtt_sender.send(group, value, force=force)
 
-                    if sent or force:
+                    # skipped = 変化なし → ログに記録しない
+                    if result != 'skipped':
                         timestamp = datetime.now().strftime("%H:%M:%S")
                         log_entry = {
                             "time": timestamp,
                             "group": group.name,
                             "sta_no3": group.sta_no3,
                             "value": value,
-                            "sent": sent
+                            "sent": result == 'sent'
                         }
                         run_state["send_log"].append(log_entry)
                         # ログ上限

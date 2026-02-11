@@ -73,14 +73,22 @@ def init_oracle():
 
     try:
         import oracledb
-        oracle_connection = oracledb.connect(
-            user=equipment_config.oracle.user,
-            password=equipment_config.oracle.password,
-            dsn=equipment_config.oracle.dsn,
-            config_dir=equipment_config.oracle.wallet_dir,
-            wallet_location=equipment_config.oracle.wallet_dir,
-            wallet_password=equipment_config.oracle.wallet_password
-        )
+        conn_params = {
+            'user': equipment_config.oracle.user,
+            'password': equipment_config.oracle.password,
+            'dsn': equipment_config.oracle.dsn,
+        }
+        use_wallet = getattr(equipment_config.oracle, 'use_wallet',
+                             bool(getattr(equipment_config.oracle, 'wallet_dir', '').strip()))
+        if use_wallet:
+            wallet_dir = getattr(equipment_config.oracle, 'wallet_dir', '').strip()
+            if wallet_dir:
+                conn_params['config_dir'] = wallet_dir
+                conn_params['wallet_location'] = wallet_dir
+                wallet_pw = getattr(equipment_config.oracle, 'wallet_password', '')
+                if wallet_pw:
+                    conn_params['wallet_password'] = wallet_pw
+        oracle_connection = oracledb.connect(**conn_params)
         print(f"Oracle: 接続成功 ({equipment_config.oracle.dsn})")
         return True
     except ImportError:
