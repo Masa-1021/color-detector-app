@@ -42,6 +42,22 @@ def create_app(config_path: str = None) -> Flask:
     config_mgr = ConfigManager(config_path)
     config_mgr.load()
 
+    # settings.json からデバイスモード設定を同期
+    try:
+        import json as _json_init
+        _settings_init_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config", "settings.json"
+        )
+        with open(_settings_init_path, 'r') as f:
+            _init_settings = _json_init.load(f)
+        if 'device_mode' in _init_settings:
+            config_mgr.set_device_mode(_init_settings['device_mode'])
+        if 'device_mode_confirmed' in _init_settings:
+            config_mgr.set_device_mode_confirmed(_init_settings['device_mode_confirmed'])
+    except Exception:
+        pass
+
     cam_conf = config_mgr.get_camera_config()
     camera = CameraManager(
         device=cam_conf.get('device', 'usb'),
@@ -59,8 +75,132 @@ def create_app(config_path: str = None) -> Flask:
         server=ntp_conf.get('server', 'ntp.nict.jp'),
         interval_sec=ntp_conf.get('interval_sec', 3600)
     )
-    if ntp_conf.get('enabled', False):
-        ntp_sync.start()
+
+    # ------------------------------------------------------------------
+    # 起動時の自動初期化（MQTT, ブリッジ, DB接続テスト, NTP同期）
+    # ------------------------------------------------------------------
+    def _startup_init():
+        """バックグラウンドで起動時の接続を初期化"""
+        import subprocess, time as _time
+
+        is_child = config_mgr.get_device_mode() == 'child'
+        print(f"[起動] デバイスモード: {'子機' if is_child else '親機'}")
+
+        # 1. MQTT 接続（両モードで実行、ただし子機はMosquitto起動をスキップ）
+        try:
+            conf = config_mgr.get_mqtt_config()
+            broker = conf.get('broker', 'localhost')
+            if not is_child and broker in ('localhost', '127.0.0.1', ''):
+                try:
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', 'mosquitto'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.stdout.strip() != 'active':
+                        subprocess.run(
+                            ['sudo', 'systemctl', 'start', 'mosquitto'],
+                            capture_output=True, timeout=10
+                        )
+                        _time.sleep(1)
+                except Exception:
+                    pass
+            mqtt_sender.start()
+            for _ in range(15):
+                _time.sleep(0.2)
+                if mqtt_sender.connected:
+                    break
+            print(f"[起動] MQTT: {'接続成功' if mqtt_sender.connected else '接続失敗'}")
+        except Exception as e:
+            print(f"[起動] MQTT: エラー - {e}")
+
+        # 2. MQTT-Oracle ブリッジ起動（親機のみ）
+        if not is_child:
+            try:
+                if not _is_bridge_running():
+                    bridge_py = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "mqtt_oracle_bridge.py"
+                    )
+                    log_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "logs"
+                    )
+                    os.makedirs(log_dir, exist_ok=True)
+                    bridge_log = os.path.join(log_dir, "bridge.log")
+                    with open(bridge_log, 'a') as log_f:
+                        subprocess.Popen(
+                            [sys.executable, '-u', bridge_py],
+                            stdout=log_f, stderr=log_f,
+                            cwd=os.path.dirname(bridge_py)
+                        )
+                    _time.sleep(3)
+                    print(f"[起動] ブリッジ: {'稼働中' if _is_bridge_running() else '起動失敗'}")
+                else:
+                    print("[起動] ブリッジ: 既に稼働中")
+            except Exception as e:
+                print(f"[起動] ブリッジ: エラー - {e}")
+        else:
+            print("[起動] ブリッジ: 子機のためスキップ")
+
+        # 3. Oracle DB 接続テスト（親機のみ）
+        if not is_child:
+            try:
+                settings = _load_settings()
+                oracle = settings.get('oracle', {})
+                if oracle.get('dsn') and oracle.get('user'):
+                    import oracledb
+                    conn_params = {
+                        'user': oracle.get('user', ''),
+                        'password': oracle.get('password', ''),
+                        'dsn': oracle.get('dsn', ''),
+                    }
+                    use_wallet = oracle.get('use_wallet', bool(oracle.get('wallet_dir', '').strip()))
+                    if use_wallet:
+                        wallet_dir = oracle.get('wallet_dir', '').strip()
+                        if wallet_dir:
+                            conn_params['config_dir'] = wallet_dir
+                            conn_params['wallet_location'] = wallet_dir
+                            wallet_pw = oracle.get('wallet_password', '')
+                            if wallet_pw:
+                                conn_params['wallet_password'] = wallet_pw
+                    conn = oracledb.connect(**conn_params)
+                    conn.close()
+                    _oracle_test_result["success"] = True
+                    _oracle_test_result["tested_at"] = datetime.now()
+                    print("[起動] Oracle DB: 接続成功")
+                else:
+                    print("[起動] Oracle DB: 設定なし（スキップ）")
+            except Exception as e:
+                _oracle_test_result["success"] = False
+                _oracle_test_result["tested_at"] = datetime.now()
+                print(f"[起動] Oracle DB: 接続失敗 - {e}")
+        else:
+            print("[起動] Oracle DB: 子機のためスキップ")
+
+        # 4. NTP 時刻同期（両モードで実行）
+        try:
+            if not ntp_sync.running:
+                ntp_sync.start()
+                config_mgr.set_ntp_config(enabled=True)
+            result = ntp_sync.sync_once()
+            print(f"[起動] NTP同期: オフセット {result.get('offset', 'N/A')}s")
+        except Exception as e:
+            print(f"[起動] NTP同期: エラー - {e}")
+
+    def _is_bridge_running():
+        """ブリッジプロセスが動作中か確認"""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['pgrep', '-f', 'mqtt_oracle_bridge.py'],
+                capture_output=True, text=True, timeout=5
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    # バックグラウンドスレッドで起動初期化を実行
+    threading.Thread(target=_startup_init, daemon=True, name="startup-init").start()
 
     # 実行モード状態
     run_state = {
@@ -110,6 +250,9 @@ def create_app(config_path: str = None) -> Flask:
         conf = config_mgr.get_mqtt_config()
         return jsonify({**conf, **stats})
 
+    # 接続テスト結果を保持
+    _oracle_test_result = {"success": False, "tested_at": None}
+
     @app.route('/api/bridge/status', methods=['GET'])
     def get_bridge_status():
         """MQTT-Oracle ブリッジのステータスを返す"""
@@ -118,26 +261,69 @@ def create_app(config_path: str = None) -> Flask:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "logs", "bridge_status.json"
         )
+        bridge_data = None
         try:
             with open(status_file, 'r') as f:
-                data = _json.load(f)
+                bridge_data = _json.load(f)
             # ファイルが古すぎる場合（30秒以上）はブリッジ停止とみなす
             from datetime import datetime as _dt
-            updated = _dt.fromisoformat(data.get('updated_at', ''))
+            updated = _dt.fromisoformat(bridge_data.get('updated_at', ''))
             age = (_dt.now() - updated).total_seconds()
             if age > 30:
-                data['running'] = False
-                data['oracle_connected'] = False
-            return jsonify(data)
+                bridge_data['running'] = False
+                bridge_data['oracle_connected'] = False
         except (FileNotFoundError, ValueError, KeyError):
-            return jsonify({
+            bridge_data = {
                 "running": False,
                 "oracle_connected": False,
                 "received": 0,
                 "inserted": 0,
                 "errors": 0,
                 "pending": 0
-            })
+            }
+
+        # 接続テスト結果を反映: ブリッジ未稼働でもDB接続テスト成功なら反映
+        if _oracle_test_result.get("success") and _oracle_test_result.get("tested_at"):
+            from datetime import datetime as _dt
+            age = (_dt.now() - _oracle_test_result["tested_at"]).total_seconds()
+            # テスト結果は5分間有効
+            if age < 300:
+                bridge_data["oracle_connected"] = True
+                bridge_data["oracle_test_success"] = True
+
+        bridge_data['child_mode'] = config_mgr.get_device_mode() == 'child'
+        return jsonify(bridge_data)
+
+    # -----------------------------------------------------------------------
+    # デバイスモード API
+    # -----------------------------------------------------------------------
+    @app.route('/api/device_mode', methods=['GET'])
+    def get_device_mode():
+        return jsonify({
+            "device_mode": config_mgr.get_device_mode(),
+            "confirmed": config_mgr.get_device_mode_confirmed()
+        })
+
+    @app.route('/api/device_mode', methods=['PUT'])
+    def set_device_mode():
+        data = request.get_json()
+        mode = data.get('device_mode', 'parent')
+        if mode not in ('parent', 'child'):
+            return jsonify({"success": False, "error": "Invalid mode"}), 400
+        config_mgr.set_device_mode(mode)
+        # settings.json にも保存
+        settings = _load_settings()
+        settings['device_mode'] = mode
+        # confirmed フラグの処理
+        if 'confirmed' in data:
+            confirmed = bool(data['confirmed'])
+            config_mgr.set_device_mode_confirmed(confirmed)
+            settings['device_mode_confirmed'] = confirmed
+        _save_settings(settings)
+        # 再起動要求の処理
+        if data.get('restart'):
+            threading.Timer(0.5, lambda: os._exit(0)).start()
+        return jsonify({"success": True, "device_mode": mode})
 
     # -----------------------------------------------------------------------
     # Oracle DB 設定 API
@@ -225,13 +411,19 @@ def create_app(config_path: str = None) -> Flask:
             count = cursor.fetchone()[0]
             cursor.close()
             conn.close()
+            _oracle_test_result["success"] = True
+            _oracle_test_result["tested_at"] = datetime.now()
             return jsonify({
                 "success": True,
                 "message": f"接続成功 (テーブル {table}: {count}件)"
             })
         except ImportError:
+            _oracle_test_result["success"] = False
+            _oracle_test_result["tested_at"] = datetime.now()
             return jsonify({"success": False, "message": "oracledb モジュール未インストール"})
         except Exception as e:
+            _oracle_test_result["success"] = False
+            _oracle_test_result["tested_at"] = datetime.now()
             return jsonify({"success": False, "message": str(e)})
 
     @app.route('/api/mqtt', methods=['PUT'])
@@ -274,10 +466,16 @@ def create_app(config_path: str = None) -> Flask:
                 print(f"[MQTT] Mosquitto start attempt: {e}")
 
         # 最新の設定を再読み込み
-        mqtt_sender.broker = broker
-        mqtt_sender.port = conf.get('port', 1883)
-        mqtt_sender.base_topic = conf.get('topic', 'equipment/status')
+        new_port = conf.get('port', 1883)
+        new_topic = conf.get('topic', 'equipment/status')
+        broker_changed = (broker != mqtt_sender.broker or new_port != mqtt_sender.port)
+        mqtt_sender.base_topic = new_topic
         mqtt_sender.enabled = conf.get('enabled', True)
+        if broker_changed:
+            # ブローカー設定が変わった場合のみ再接続
+            mqtt_sender.stop()
+            mqtt_sender.broker = broker
+            mqtt_sender.port = new_port
         mqtt_sender.start()
         # 接続完了をリトライ付きで待つ（最大3秒）
         for _ in range(15):
@@ -577,8 +775,12 @@ def create_app(config_path: str = None) -> Flask:
             if not camera.start():
                 return jsonify({"success": False, "error": "Camera start failed"})
 
-        # MQTT開始
+        # MQTT開始（接続完了を待つ）
         mqtt_sender.start()
+        for _ in range(15):
+            time.sleep(0.2)
+            if mqtt_sender.connected:
+                break
         mqtt_sender.reset_last_values()
 
         # 点滅検出リセット
@@ -681,7 +883,8 @@ def create_app(config_path: str = None) -> Flask:
                             "group": group.name,
                             "sta_no3": group.sta_no3,
                             "value": value,
-                            "sent": result == 'sent'
+                            "sent": result == 'sent',
+                            "status": result  # 'sent', 'failed', 'queued'
                         }
                         run_state["send_log"].append(log_entry)
                         # ログ上限

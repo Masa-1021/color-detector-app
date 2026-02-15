@@ -125,6 +125,7 @@ class OracleConfig:
     password: str = ""
     wallet_dir: str = "/home/sano/oracle_wallet"
     wallet_password: str = ""
+    use_wallet: bool = True
     table_name: str = "HF1RCM01"
     # 接続プール設定
     pool_min: int = 1

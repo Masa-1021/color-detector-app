@@ -16,6 +16,8 @@ const state = {
   currentRadius: 0,
   config: {},
   statusPollTimer: null,
+  deviceMode: 'parent',   // 'parent' | 'child'
+  deviceModeConfirmed: false,
   // Rule editing
   editingRuleGroupId: null,
   editingRuleId: null,     // null = new rule
@@ -32,6 +34,30 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCanvas();
   loadConfig();
   startVideoFeed();
+
+  // 起動時の自動初期化完了を待ってステータスを更新（5秒後、10秒後）
+  setTimeout(() => refreshMqttStatus(), 5000);
+  setTimeout(() => refreshMqttStatus(), 10000);
+
+  // Setup modal radio button selection styling
+  document.querySelectorAll('input[name="setup-device-mode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('#setup-modal-backdrop .setup-mode-option').forEach(opt => {
+        opt.classList.toggle('selected', opt.querySelector('input').checked);
+      });
+    });
+  });
+
+  // Settings page radio button selection + apply button enable
+  document.querySelectorAll('input[name="sys-device-mode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('#sys-settings-page .setup-mode-option').forEach(opt => {
+        opt.classList.toggle('selected', opt.querySelector('input').checked);
+      });
+      const selected = document.querySelector('input[name="sys-device-mode"]:checked').value;
+      document.getElementById('sys-mode-apply-btn').disabled = (selected === state.deviceMode);
+    });
+  });
 });
 
 function startVideoFeed() {
@@ -82,6 +108,8 @@ async function loadConfig() {
     state.circles = data.circles || [];
     state.groups = data.groups || [];
     state.rules = data.rules || [];
+    state.deviceMode = data.device_mode || 'parent';
+    state.deviceModeConfirmed = data.device_mode_confirmed || false;
 
     // STA_NO1 options
     const select = document.getElementById('sta-no1-select');
@@ -115,6 +143,10 @@ async function loadConfig() {
     redrawCanvas();
     refreshMqttStatus();
     loadOracleConfig();
+    applyDeviceModeUI();
+    if (!state.deviceModeConfirmed) {
+      showSetupModal();
+    }
   } catch (e) {
     showToast('設定の読み込みに失敗しました', 'error');
   }
@@ -132,6 +164,137 @@ function onSendModeChange(value) {
   if (!state.config.detection) state.config.detection = {};
   state.config.detection.send_mode = value;
   api('PUT', '/api/detection', { send_mode: value });
+}
+
+// =============================================================================
+// Device Mode
+// =============================================================================
+function applyDeviceModeUI() {
+  const isChild = state.deviceMode === 'child';
+
+  // Oracle badge in header
+  const oracleBadge = document.getElementById('oracle-badge');
+  if (oracleBadge) oracleBadge.classList.toggle('hidden', isChild);
+
+  // Oracle DB section in connection settings
+  const oracleSection = document.getElementById('oracle-db-section');
+  if (oracleSection) oracleSection.classList.toggle('hidden', isChild);
+
+  // Child mode banner
+  const banner = document.getElementById('child-mode-banner');
+  if (banner) banner.classList.toggle('hidden', !isChild);
+
+  // MQTT broker placeholder hint
+  const brokerInput = document.getElementById('mqtt-broker-input');
+  if (brokerInput) {
+    brokerInput.placeholder = isChild ? '親機のIPアドレス' : 'localhost';
+  }
+}
+
+function showSetupModal() {
+  // Set radio to current device mode
+  const radios = document.querySelectorAll('input[name="setup-device-mode"]');
+  radios.forEach(r => {
+    r.checked = r.value === state.deviceMode;
+    const label = r.closest('.setup-mode-option');
+    if (label) label.classList.toggle('selected', r.checked);
+  });
+  // Show skip checkbox for initial setup
+  const skipLabel = document.getElementById('setup-skip-label');
+  if (skipLabel) skipLabel.style.display = '';
+  document.getElementById('setup-skip-checkbox').checked = false;
+  document.getElementById('setup-modal-backdrop').classList.add('active');
+}
+
+function openSettingsPage() {
+  // Sync radio buttons to current device mode
+  const radios = document.querySelectorAll('input[name="sys-device-mode"]');
+  radios.forEach(r => {
+    r.checked = r.value === state.deviceMode;
+    const label = r.closest('.setup-mode-option');
+    if (label) label.classList.toggle('selected', r.checked);
+  });
+  // Current mode label
+  document.getElementById('sys-current-mode').textContent =
+    state.deviceMode === 'child' ? '子機' : '親機';
+  // Disable apply button until mode changes
+  document.getElementById('sys-mode-apply-btn').disabled = true;
+  // Show settings page, hide main content
+  document.getElementById('sys-settings-page').classList.remove('hidden');
+  document.querySelector('.main-content').classList.add('hidden');
+  document.getElementById('tab-nav').classList.add('hidden');
+  document.getElementById('child-mode-banner').classList.add('hidden');
+}
+
+function closeSettingsPage() {
+  document.getElementById('sys-settings-page').classList.add('hidden');
+  document.querySelector('.main-content').classList.remove('hidden');
+  document.getElementById('tab-nav').classList.remove('hidden');
+  applyDeviceModeUI();
+}
+
+async function onSettingsModeApply() {
+  const selected = document.querySelector('input[name="sys-device-mode"]:checked').value;
+  if (selected === state.deviceMode) return;
+  try {
+    await api('PUT', '/api/device_mode', {
+      device_mode: selected,
+      confirmed: true,
+      restart: true
+    });
+    closeSettingsPage();
+    showRestartOverlay();
+    waitForRestart();
+  } catch (e) {
+    showToast('モード変更に失敗しました', 'error');
+  }
+}
+
+async function onSetupConfirm() {
+  const selected = document.querySelector('input[name="setup-device-mode"]:checked').value;
+  const skipCheckbox = document.getElementById('setup-skip-checkbox');
+  const skip = skipCheckbox.checked;
+  const modeChanged = selected !== state.deviceMode;
+
+  try {
+    if (modeChanged) {
+      // Mode changed: save + restart
+      await api('PUT', '/api/device_mode', {
+        device_mode: selected,
+        confirmed: skip,
+        restart: true
+      });
+      document.getElementById('setup-modal-backdrop').classList.remove('active');
+      showRestartOverlay();
+      waitForRestart();
+    } else {
+      // Mode unchanged: just save confirmed flag
+      await api('PUT', '/api/device_mode', {
+        device_mode: selected,
+        confirmed: skip
+      });
+      state.deviceModeConfirmed = skip;
+      document.getElementById('setup-modal-backdrop').classList.remove('active');
+    }
+  } catch (e) {
+    showToast('モード設定に失敗しました', 'error');
+  }
+}
+
+function showRestartOverlay() {
+  document.getElementById('restart-overlay').classList.remove('hidden');
+}
+
+function waitForRestart() {
+  const poll = setInterval(async () => {
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        clearInterval(poll);
+        location.reload();
+      }
+    } catch (e) { /* server still restarting */ }
+  }, 1000);
 }
 
 // =============================================================================
@@ -202,14 +365,19 @@ async function refreshMqttStatus() {
 }
 
 async function refreshBridgeStatus() {
+  if (state.deviceMode === 'child') return;
   try {
     const data = await api('GET', '/api/bridge/status');
     const bridgeRunning = data.running;
     const oracleOk = data.oracle_connected;
+    const testedOk = data.oracle_test_success;
 
     // Header Oracle badge
     const badge = document.getElementById('oracle-badge');
     if (bridgeRunning && oracleOk) {
+      badge.className = 'badge badge-success';
+      badge.textContent = 'DB: 接続中';
+    } else if (oracleOk || testedOk) {
       badge.className = 'badge badge-success';
       badge.textContent = 'DB: 接続中';
     } else if (bridgeRunning) {
@@ -220,11 +388,12 @@ async function refreshBridgeStatus() {
       badge.textContent = 'DB: 停止';
     }
 
-    // Detail badges
+    // Detail badges - ブリッジ
     const bridgeBadge = document.getElementById('bridge-detail-status');
     bridgeBadge.className = bridgeRunning ? 'badge badge-success' : 'badge badge-error';
     bridgeBadge.textContent = bridgeRunning ? 'ブリッジ稼働中' : 'ブリッジ停止';
 
+    // Detail badges - Oracle DB
     const oracleBadge = document.getElementById('oracle-detail-status');
     oracleBadge.className = oracleOk ? 'badge badge-success' : 'badge badge-error';
     oracleBadge.textContent = oracleOk ? 'DB接続中' : 'DB未接続';
@@ -374,10 +543,30 @@ async function testOracleConnection() {
       resultEl.textContent = result.message;
       resultEl.style.color = 'var(--sd-color-error)';
     }
+    // テスト結果をステータスバッジに即座に反映
+    updateOracleStatusBadges(result.success);
   } catch (e) {
     resultEl.textContent = '接続テストに失敗しました';
     resultEl.style.color = 'var(--sd-color-error)';
+    updateOracleStatusBadges(false);
   }
+}
+
+function updateOracleStatusBadges(connected) {
+  // ヘッダーのDB バッジ
+  const badge = document.getElementById('oracle-badge');
+  if (connected) {
+    badge.className = 'badge badge-success';
+    badge.textContent = 'DB: 接続中';
+  } else {
+    badge.className = 'badge badge-error';
+    badge.textContent = 'DB: 未接続';
+  }
+
+  // 詳細バッジ
+  const oracleBadge = document.getElementById('oracle-detail-status');
+  oracleBadge.className = connected ? 'badge badge-success' : 'badge badge-error';
+  oracleBadge.textContent = connected ? 'DB接続中' : 'DB未接続';
 }
 
 // =============================================================================
@@ -679,6 +868,21 @@ function startAddCircle() {
   showToast('映像上でドラッグして円を作成', 'info');
 }
 
+async function addCircleAtCenter() {
+  const cw = (state.config.camera && state.config.camera.width) || 640;
+  const ch = (state.config.camera && state.config.camera.height) || 480;
+  const result = await api('POST', '/api/circles', {
+    center_x: Math.round(cw / 2),
+    center_y: Math.round(ch / 2),
+    radius: 25
+  });
+  if (result.success) {
+    state.circles.push(result.circle);
+    selectCircle(result.id);
+    showToast('円を追加しました', 'success');
+  }
+}
+
 function selectCircle(circleId) {
   state.selectedCircleId = circleId;
   renderCircleEditor();
@@ -715,11 +919,21 @@ function renderCircleEditor() {
   const el = document.getElementById('circle-editor-content');
   const circle = state.circles.find(c => c.id === state.selectedCircleId);
 
+  // SVG icons
+  const iconAdd = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  const iconTrash = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+  const iconEye = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/></svg>';
+  const iconPalette = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><path d="M12 22C6.5 22 2 17.5 2 12S6.5 2 12 2s10 4.5 10 10c0 2-1 3.5-3 3.5h-2.5c-1 0-1.5.5-1.5 1.5 0 .5.5 1 .5 1.5s-.5 1.5-1.5 1.5H12z"/></svg>';
+
   if (!circle) {
     el.innerHTML = `
-      <div class="empty-state">映像上の円をクリックして選択<br><small>または下のボタンで新規作成</small></div>
-      <div class="flex justify-center mt-4">
-        <button class="btn btn-primary btn-sm" onclick="startAddCircle()">+ 円追加</button>
+      <div class="circle-editor-empty">
+        <p style="color:var(--sd-color-text-secondary);font-size:var(--sd-font-size-sm);text-align:center;margin-bottom:var(--sd-spacing-3)">
+          映像上の円をタップして選択
+        </p>
+        <button class="btn btn-primary" onclick="addCircleAtCenter()" style="width:100%">
+          ${iconAdd} 新しい円を追加
+        </button>
       </div>
     `;
     return;
@@ -738,11 +952,19 @@ function renderCircleEditor() {
     </div>
   `).join('');
 
+  const colorSection = (circle.colors || []).length > 0
+    ? `<div class="color-list">${colors}</div>`
+    : `<div class="color-empty-guide">
+        <p>この円が検出する色を登録してください</p>
+        <span>「中心色を取得」で円の中心にある色を自動取得できます</span>
+      </div>`;
+
   el.innerHTML = `
     <div class="circle-editor">
-      <div class="circle-info-row">
-        <label>ID</label>
-        <span>${circle.id}</span>
+      <div class="circle-editor-toolbar">
+        <span class="circle-editor-title">${circle.name || '円' + circle.id}</span>
+        <button class="btn-icon-action" onclick="addCircleAtCenter()" title="新しい円を追加">${iconAdd}</button>
+        <button class="btn-icon-action btn-icon-danger" onclick="deleteSelectedCircle()" title="この円を削除">${iconTrash}</button>
       </div>
       <div class="circle-info-row">
         <label>名前</label>
@@ -764,15 +986,10 @@ function renderCircleEditor() {
         </select>
       </div>
       <div class="section-title mt-4">登録色</div>
-      <div class="color-list">${colors || '<div class="empty-state">色なし</div>'}</div>
-      <div class="flex gap-2 mt-2 flex-wrap">
-        <button class="btn btn-primary btn-sm" onclick="addColorFromCenter(${circle.id})">中心色を取得</button>
-        <button class="btn btn-secondary btn-sm" onclick="openColorModal(${circle.id})">カラーパレット</button>
-      </div>
-      <hr style="margin:var(--sd-spacing-4) 0;border:none;border-top:1px solid var(--sd-color-border);">
-      <div class="flex gap-2 justify-between">
-        <button class="btn btn-primary btn-sm" onclick="startAddCircle()">+ 円追加</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteSelectedCircle()">この円を削除</button>
+      ${colorSection}
+      <div class="flex gap-2 mt-2">
+        <button class="btn btn-primary btn-sm" onclick="addColorFromCenter(${circle.id})" style="flex:1">${iconEye} 中心色を取得</button>
+        <button class="btn btn-secondary btn-sm" onclick="openColorModal(${circle.id})" style="flex:1">${iconPalette} パレット</button>
       </div>
     </div>
   `;
@@ -817,7 +1034,7 @@ async function addColorFromCenter(circleId) {
   state.selectedCircleId = circleId;
   state.editingColorName = null;
   document.querySelector('#color-modal .modal-header h3').textContent = '中心色から追加';
-  document.getElementById('color-name-input').value = result.suggested_name || '';
+  document.getElementById('color-name-input').value = getUniqueColorName(result.suggested_name || '');
   document.getElementById('color-name-input').readOnly = false;
   document.getElementById('h-slider').value = result.hsv[0];
   document.getElementById('hr-slider').value = 10;
@@ -848,7 +1065,7 @@ async function pickColorAt(pos) {
 
   // Open color modal with picked values
   document.querySelector('#color-modal .modal-header h3').textContent = '色の追加';
-  document.getElementById('color-name-input').value = result.suggested_name || '';
+  document.getElementById('color-name-input').value = getUniqueColorName(result.suggested_name || '');
   document.getElementById('color-name-input').readOnly = false;
   document.getElementById('h-slider').value = result.hsv[0];
   document.getElementById('hr-slider').value = 10;
@@ -1083,10 +1300,33 @@ function onPickerNumberChange() {
   updateColorPreview();
 }
 
+function getUniqueColorName(baseName, excludeName = null) {
+  // 全円の全色名を集める
+  const usedNames = new Set();
+  state.circles.forEach(c => {
+    (c.colors || []).forEach(col => {
+      if (col.name !== excludeName) usedNames.add(col.name);
+    });
+  });
+  if (!usedNames.has(baseName)) return baseName;
+  for (let i = 2; i <= 99; i++) {
+    const candidate = `${baseName}${i}`;
+    if (!usedNames.has(candidate)) return candidate;
+  }
+  return `${baseName}_${Date.now()}`;
+}
+
 async function saveColor() {
   if (!state.selectedCircleId) return;
-  const name = document.getElementById('color-name-input').value.trim();
+  let name = document.getElementById('color-name-input').value.trim();
   if (!name) { showToast('色名を入力してください', 'error'); return; }
+
+  // 重複チェック（自分自身の編集時は除外）
+  const uniqueName = getUniqueColorName(name, state.editingColorName);
+  if (uniqueName !== name) {
+    name = uniqueName;
+    showToast(`色名が重複していたため「${name}」に変更しました`, 'info');
+  }
 
   const data = {
     name,
@@ -1165,7 +1405,7 @@ function renderGroups() {
             if (c.blinking) s += '(点滅)';
             return s;
           }).join(' + ');
-          return `<div class="rule-summary"><span class="badge badge-info">P:${r.priority}</span> ${desc} &rarr; ${r.value}</div>`;
+          return `<div class="rule-summary">${desc} &rarr; <strong>${r.value}</strong> <span style="font-size:10px;opacity:0.5">P:${r.priority}</span></div>`;
         }).join('')
       : '<span style="color:var(--sd-color-text-disabled)">ルールなし</span>';
 
@@ -1272,8 +1512,8 @@ function renderRuleList() {
     return `
       <div class="flex items-center justify-between" style="padding:var(--sd-spacing-2) 0;border-bottom:1px solid var(--sd-color-border)">
         <div>
-          <span class="badge badge-info">優先度:${r.priority}</span>
-          <span style="font-size:var(--sd-font-size-sm);margin-left:var(--sd-spacing-2)">${desc} → ${r.value}</span>
+          <span style="font-size:var(--sd-font-size-sm)">${desc} &rarr; <strong>${r.value}</strong></span>
+          <span class="badge" style="font-size:10px;padding:1px 5px;margin-left:var(--sd-spacing-1);opacity:0.6">P:${r.priority}</span>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-secondary btn-sm" onclick="editRule(${r.id})">編集</button>
@@ -1397,23 +1637,8 @@ async function deleteRule(ruleId) {
 // =============================================================================
 async function toggleMode() {
   if (state.mode === 'edit') {
-    // Start run mode
-    const result = await api('POST', '/api/run/start');
-    if (!result.success) {
-      showToast(result.error || '実行開始に失敗しました', 'error');
-      return;
-    }
-    state.mode = 'run';
-    document.getElementById('mode-label').textContent = '実行中';
-    document.getElementById('btn-toggle-mode').textContent = '停止';
-    document.getElementById('btn-toggle-mode').classList.remove('btn-primary');
-    document.getElementById('btn-toggle-mode').classList.add('btn-danger');
-    document.getElementById('edit-toolbar').classList.add('hidden');
-    document.getElementById('edit-settings').classList.add('hidden');
-    document.getElementById('run-settings').classList.remove('hidden');
-
-    // Start status polling
-    state.statusPollTimer = setInterval(pollStatus, 500);
+    // 実行開始前にカメラ表示を確認
+    showRunConfirmDialog();
   } else {
     // Stop run mode
     await api('POST', '/api/run/stop');
@@ -1426,11 +1651,57 @@ async function toggleMode() {
     document.getElementById('edit-settings').classList.remove('hidden');
     document.getElementById('run-settings').classList.add('hidden');
 
+    // カメラ映像を復帰
+    const videoPanel = document.getElementById('video-panel');
+    videoPanel.classList.remove('hidden');
+    const img = document.getElementById('video-feed');
+    if (!img.src || img.src.indexOf('/video_feed') === -1) {
+      img.src = '/video_feed?' + Date.now();
+    }
+
     if (state.statusPollTimer) {
       clearInterval(state.statusPollTimer);
       state.statusPollTimer = null;
     }
   }
+}
+
+function showRunConfirmDialog() {
+  document.getElementById('run-confirm-backdrop').classList.add('active');
+}
+
+function closeRunConfirmDialog() {
+  document.getElementById('run-confirm-backdrop').classList.remove('active');
+}
+
+async function startRunWithCamera(showCamera) {
+  closeRunConfirmDialog();
+
+  const result = await api('POST', '/api/run/start');
+  if (!result.success) {
+    showToast(result.error || '実行開始に失敗しました', 'error');
+    return;
+  }
+
+  state.mode = 'run';
+  document.getElementById('mode-label').textContent = '実行中';
+  document.getElementById('btn-toggle-mode').textContent = '停止';
+  document.getElementById('btn-toggle-mode').classList.remove('btn-primary');
+  document.getElementById('btn-toggle-mode').classList.add('btn-danger');
+  document.getElementById('edit-toolbar').classList.add('hidden');
+  document.getElementById('edit-settings').classList.add('hidden');
+  document.getElementById('run-settings').classList.remove('hidden');
+
+  // カメラ映像の表示/非表示
+  const videoPanel = document.getElementById('video-panel');
+  if (!showCamera) {
+    videoPanel.classList.add('hidden');
+    // MJPEGストリームを停止して負荷軽減
+    document.getElementById('video-feed').src = '';
+  }
+
+  // Start status polling
+  state.statusPollTimer = setInterval(pollStatus, 500);
 }
 
 // =============================================================================
@@ -1463,8 +1734,10 @@ async function pollStatus() {
     document.getElementById('footer-status').textContent =
       `送信:${sent} エラー:${errors} キュー:${pending}`;
 
-    // Bridge status (Oracle DB)
-    refreshBridgeStatus();
+    // Bridge status (Oracle DB) - 子機はスキップ
+    if (state.deviceMode !== 'child') {
+      refreshBridgeStatus();
+    }
 
   } catch (e) {
     // Ignore polling errors
@@ -1524,14 +1797,26 @@ function renderSendLog(log) {
     return;
   }
 
-  el.innerHTML = log.slice(-15).reverse().map(entry =>
-    `<div class="send-log-entry">
+  el.innerHTML = log.slice(-15).reverse().map(entry => {
+    let statusIcon, statusClass;
+    if (entry.status === 'sent' || (entry.sent && !entry.status)) {
+      statusIcon = '&#10003;';
+      statusClass = 'status-ok';
+    } else if (entry.status === 'queued') {
+      statusIcon = '&#128258;';  // retry arrow
+      statusClass = 'status-queued';
+    } else {
+      statusIcon = '&#10007;';
+      statusClass = 'status-fail';
+    }
+    const statusLabel = entry.status === 'queued' ? ' キュー保存' : '';
+    return `<div class="send-log-entry">
       <span class="time">${entry.time}</span>
       <span>${entry.sta_no3}</span>
       <span>&rarr; ${entry.value}</span>
-      <span class="${entry.sent ? 'status-ok' : 'status-fail'}">${entry.sent ? '&#10003;' : '&#10007;'}</span>
-    </div>`
-  ).join('');
+      <span class="${statusClass}">${statusIcon}${statusLabel}</span>
+    </div>`;
+  }).join('');
 }
 
 // =============================================================================
@@ -1551,7 +1836,9 @@ function showTab(tab) {
 function showSettingsTab(tabId) {
   // Update tab buttons
   document.querySelectorAll('.settings-tab-nav button').forEach(btn => {
-    btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
+    const isActive = btn.getAttribute('data-tab') === tabId;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
   // Update tab content
   document.querySelectorAll('.settings-tab-content').forEach(content => {

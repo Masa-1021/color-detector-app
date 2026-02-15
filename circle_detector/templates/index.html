@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Circle Detector</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=4">
 </head>
 <body>
 
@@ -15,6 +15,7 @@
       <small id="mode-label">編集モード</small>
     </div>
     <div class="header-actions">
+      <button class="btn-gear" onclick="openSettingsPage()" title="システム設定" aria-label="システム設定">&#9881;</button>
       <span id="mqtt-badge" class="badge badge-error">MQTT: 未接続</span>
       <span id="oracle-badge" class="badge badge-error">DB: 未接続</span>
       <button class="btn btn-secondary" onclick="saveConfig()">設定保存</button>
@@ -23,6 +24,11 @@
       </button>
     </div>
   </header>
+
+  <!-- Child mode banner -->
+  <div id="child-mode-banner" class="hidden" style="background:var(--sd-color-warning-bg, #FEF3C7);border:1px solid var(--sd-color-warning, #F59E0B);border-radius:var(--sd-radius, 6px);padding:var(--sd-spacing-2) var(--sd-spacing-3);margin:var(--sd-spacing-2) var(--sd-spacing-4);font-size:var(--sd-font-size-sm)">
+    <strong>子機モード:</strong> MQTTブローカーに親機のIPアドレスを設定してください（接続設定タブ）
+  </div>
 
   <!-- Tab navigation (mobile) -->
   <nav class="tab-nav" id="tab-nav">
@@ -37,7 +43,7 @@
     <div class="video-panel" id="video-panel">
       <div class="video-container" id="video-container">
         <img id="video-feed" src="" alt="カメラ映像">
-        <canvas id="overlay-canvas"></canvas>
+        <canvas id="overlay-canvas" role="img" aria-label="円検出オーバーレイ"></canvas>
       </div>
       <div class="video-toolbar" id="edit-toolbar"></div>
     </div>
@@ -49,27 +55,26 @@
       <div id="edit-settings">
 
         <!-- Settings Tabs -->
-        <nav class="settings-tab-nav">
-          <button class="active" onclick="showSettingsTab('tab-basic')" data-tab="tab-basic">基本設定</button>
-          <button onclick="showSettingsTab('tab-connection')" data-tab="tab-connection">接続設定</button>
-          <button onclick="showSettingsTab('tab-groups')" data-tab="tab-groups">グループ</button>
-          <button onclick="showSettingsTab('tab-circle')" data-tab="tab-circle">
+        <nav class="settings-tab-nav" role="tablist" aria-label="設定タブ">
+          <button role="tab" aria-selected="true" aria-controls="tab-basic" class="active" onclick="showSettingsTab('tab-basic')" data-tab="tab-basic">基本設定</button>
+          <button role="tab" aria-selected="false" aria-controls="tab-groups" onclick="showSettingsTab('tab-groups')" data-tab="tab-groups">グループ</button>
+          <button role="tab" aria-selected="false" aria-controls="tab-circle" onclick="showSettingsTab('tab-circle')" data-tab="tab-circle">
             円設定
             <span id="circle-tab-badge" class="tab-badge hidden"></span>
           </button>
         </nav>
 
         <!-- Tab: 基本設定 -->
-        <div class="settings-tab-content active" id="tab-basic">
+        <div class="settings-tab-content active" id="tab-basic" role="tabpanel">
           <div class="card">
             <div class="card-body">
               <div class="form-group">
-                <label class="form-label">STA_NO1</label>
+                <label class="form-label" for="sta-no1-select">STA_NO1</label>
                 <select id="sta-no1-select" class="form-select" onchange="onStaNo1Change(this.value)">
                 </select>
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label class="form-label">送信モード</label>
+                <label class="form-label" for="send-mode-select">送信モード</label>
                 <select id="send-mode-select" class="form-select" onchange="onSendModeChange(this.value)">
                   <option value="on_change">変化時のみ</option>
                   <option value="periodic">定期送信</option>
@@ -79,124 +84,8 @@
           </div>
         </div>
 
-        <!-- Tab: 接続設定 -->
-        <div class="settings-tab-content" id="tab-connection">
-          <div class="card">
-            <div class="card-body">
-              <!-- MQTT -->
-              <div class="section-title">MQTT</div>
-              <div class="form-group">
-                <label class="form-label">ブローカー</label>
-                <div class="flex gap-2">
-                  <input type="text" class="form-input" id="mqtt-broker-input" placeholder="localhost" style="flex:1"
-                         onchange="onMqttConfigChange()">
-                  <input type="number" class="form-input" id="mqtt-port-input" placeholder="1883" style="width:80px"
-                         onchange="onMqttConfigChange()">
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">トピック</label>
-                <input type="text" class="form-input" id="mqtt-topic-input" placeholder="equipment/status"
-                       onchange="onMqttConfigChange()">
-              </div>
-              <div class="form-group">
-                <label class="form-label">接続状態</label>
-                <div class="flex items-center gap-2">
-                  <span id="mqtt-detail-status" class="badge badge-error">未接続</span>
-                  <button class="btn btn-primary btn-sm" id="btn-mqtt-connect" onclick="mqttConnect()">接続</button>
-                  <button class="btn btn-secondary btn-sm hidden" id="btn-mqtt-disconnect" onclick="mqttDisconnect()">切断</button>
-                </div>
-              </div>
-
-              <hr style="margin:var(--sd-spacing-3) 0;border:none;border-top:1px solid var(--sd-color-border);">
-
-              <!-- Oracle DB -->
-              <div class="section-title">Oracle DB</div>
-              <div class="form-group">
-                <label class="form-label">DSN</label>
-                <input type="text" class="form-input" id="oracle-dsn-input" placeholder="eqstatusdb_low"
-                       onchange="onOracleConfigChange()">
-              </div>
-              <div class="form-group">
-                <label class="form-label">ユーザー</label>
-                <input type="text" class="form-input" id="oracle-user-input" placeholder="ADMIN"
-                       onchange="onOracleConfigChange()">
-              </div>
-              <div class="form-group">
-                <label class="form-label">パスワード</label>
-                <div class="input-with-toggle">
-                  <input type="password" class="form-input" id="oracle-password-input" placeholder="パスワード"
-                         onchange="onOracleConfigChange()">
-                  <button type="button" class="btn-pw-toggle" onclick="togglePasswordVisibility(this)">表示</button>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">
-                  <label class="toggle-label">
-                    <input type="checkbox" id="oracle-use-wallet" onchange="toggleWalletFields()"> Wallet認証を使用
-                  </label>
-                </label>
-              </div>
-              <div id="oracle-wallet-section" class="hidden">
-                <div class="form-group">
-                  <label class="form-label">Walletディレクトリ</label>
-                  <input type="text" class="form-input" id="oracle-wallet-dir-input" placeholder="/home/sano/oracle_wallet/"
-                         onchange="onOracleConfigChange()">
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Walletパスワード</label>
-                  <div class="input-with-toggle">
-                    <input type="password" class="form-input" id="oracle-wallet-pw-input" placeholder="Walletパスワード"
-                           onchange="onOracleConfigChange()">
-                    <button type="button" class="btn-pw-toggle" onclick="togglePasswordVisibility(this)">表示</button>
-                  </div>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">テーブル名</label>
-                <input type="text" class="form-input" id="oracle-table-input" placeholder="HF1RCM01"
-                       onchange="onOracleConfigChange()">
-              </div>
-              <div class="form-group">
-                <label class="form-label">接続状態</label>
-                <div class="flex items-center gap-2">
-                  <span id="bridge-detail-status" class="badge badge-error">停止</span>
-                  <span id="oracle-detail-status" class="badge badge-error">DB未接続</span>
-                  <button class="btn btn-primary btn-sm" onclick="testOracleConnection()">接続テスト</button>
-                </div>
-                <div id="bridge-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
-                <div id="oracle-test-result" style="font-size:var(--sd-font-size-xs);margin-top:var(--sd-spacing-1)"></div>
-              </div>
-
-              <hr style="margin:var(--sd-spacing-3) 0;border:none;border-top:1px solid var(--sd-color-border);">
-
-              <!-- NTP -->
-              <div class="section-title">NTP 時刻同期</div>
-              <div class="form-group">
-                <label class="form-label">サーバー / 同期間隔</label>
-                <div class="flex gap-2">
-                  <input type="text" class="form-input" id="ntp-server-input" placeholder="ntp.nict.jp" style="flex:1"
-                         onchange="onNtpConfigChange()">
-                  <input type="number" class="form-input" id="ntp-interval-input" placeholder="3600" style="width:80px"
-                         min="60" onchange="onNtpConfigChange()">
-                  <span style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);align-self:center">秒</span>
-                </div>
-              </div>
-              <div class="form-group" style="margin-bottom:0">
-                <div class="flex items-center gap-2">
-                  <span id="ntp-detail-status" class="badge badge-error">停止</span>
-                  <button class="btn btn-primary btn-sm" id="btn-ntp-start" onclick="ntpStart()">有効化</button>
-                  <button class="btn btn-secondary btn-sm hidden" id="btn-ntp-stop" onclick="ntpStop()">無効化</button>
-                  <button class="btn btn-secondary btn-sm" onclick="ntpSyncNow()">今すぐ同期</button>
-                </div>
-                <div id="ntp-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Tab: グループ -->
-        <div class="settings-tab-content" id="tab-groups">
+        <div class="settings-tab-content" id="tab-groups" role="tabpanel">
           <div class="flex items-center justify-between mb-2">
             <span style="font-size:var(--sd-font-size-sm);color:var(--sd-color-text-secondary)">パトライト管理</span>
             <button class="btn btn-primary btn-sm" onclick="addGroup()">+ 追加</button>
@@ -205,7 +94,7 @@
         </div>
 
         <!-- Tab: 円設定 -->
-        <div class="settings-tab-content" id="tab-circle">
+        <div class="settings-tab-content" id="tab-circle" role="tabpanel">
           <div id="circle-editor-content">
             <div class="empty-state">映像上の円をクリックして選択<br><small>または「+ 円追加」で新規作成</small></div>
           </div>
@@ -237,16 +126,171 @@
     </div>
   </footer>
 
+  <!-- System Settings Page -->
+  <div class="sys-settings-page hidden" id="sys-settings-page">
+    <div class="sys-settings-header">
+      <button class="btn btn-secondary btn-sm" onclick="closeSettingsPage()">&#8592; 戻る</button>
+      <h2>システム設定</h2>
+    </div>
+    <div class="sys-settings-content">
+      <!-- Device Mode -->
+      <div class="card">
+        <div class="card-body">
+          <div class="section-title">デバイスモード</div>
+          <p style="font-size:var(--sd-font-size-sm);color:var(--sd-color-text-secondary);margin-bottom:var(--sd-spacing-3)">
+            現在のモード: <strong id="sys-current-mode">親機</strong>
+          </p>
+          <div class="setup-mode-options">
+            <label class="setup-mode-option selected" id="sys-mode-parent">
+              <input type="radio" name="sys-device-mode" value="parent" checked>
+              <span class="setup-mode-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/><line x1="10" y1="6" x2="18" y2="6"/><line x1="10" y1="18" x2="18" y2="18"/></svg></span>
+              <div class="setup-mode-text">
+                <span class="setup-mode-label">親機</span>
+                <span class="setup-mode-desc">ブローカー＋DB＋カメラ</span>
+              </div>
+            </label>
+            <label class="setup-mode-option" id="sys-mode-child">
+              <input type="radio" name="sys-device-mode" value="child">
+              <span class="setup-mode-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+              <div class="setup-mode-text">
+                <span class="setup-mode-label">子機</span>
+                <span class="setup-mode-desc">カメラのみ → 親機に送信</span>
+              </div>
+            </label>
+          </div>
+          <button class="btn btn-primary mt-4" id="sys-mode-apply-btn" onclick="onSettingsModeApply()" disabled>モードを変更して再起動</button>
+        </div>
+      </div>
+
+      <!-- MQTT -->
+      <div class="card">
+        <div class="card-body">
+          <div class="section-title">MQTT</div>
+          <div class="form-group">
+            <label class="form-label">ブローカー</label>
+            <div class="flex gap-2">
+              <input type="text" class="form-input" id="mqtt-broker-input" placeholder="localhost" style="flex:1"
+                     onchange="onMqttConfigChange()">
+              <input type="number" class="form-input" id="mqtt-port-input" placeholder="1883" style="width:80px"
+                     onchange="onMqttConfigChange()">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mqtt-topic-input">トピック</label>
+            <input type="text" class="form-input" id="mqtt-topic-input" placeholder="equipment/status"
+                   onchange="onMqttConfigChange()">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">接続状態</label>
+            <div class="flex items-center gap-2">
+              <span id="mqtt-detail-status" class="badge badge-error">未接続</span>
+              <button class="btn btn-primary btn-sm" id="btn-mqtt-connect" onclick="mqttConnect()">接続</button>
+              <button class="btn btn-secondary btn-sm hidden" id="btn-mqtt-disconnect" onclick="mqttDisconnect()">切断</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Oracle DB -->
+      <div class="card" id="oracle-db-section">
+        <div class="card-body">
+          <div class="section-title">Oracle DB</div>
+          <div class="form-group">
+            <label class="form-label" for="oracle-dsn-input">DSN</label>
+            <input type="text" class="form-input" id="oracle-dsn-input" placeholder="eqstatusdb_low"
+                   onchange="onOracleConfigChange()">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="oracle-user-input">ユーザー</label>
+            <input type="text" class="form-input" id="oracle-user-input" placeholder="ADMIN"
+                   onchange="onOracleConfigChange()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">パスワード</label>
+            <div class="input-with-toggle">
+              <input type="password" class="form-input" id="oracle-password-input" placeholder="パスワード"
+                     onchange="onOracleConfigChange()">
+              <button type="button" class="btn-pw-toggle" onclick="togglePasswordVisibility(this)">表示</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">
+              <label class="toggle-label">
+                <input type="checkbox" id="oracle-use-wallet" onchange="toggleWalletFields()"> Wallet認証を使用
+              </label>
+            </label>
+          </div>
+          <div id="oracle-wallet-section" class="hidden">
+            <div class="form-group">
+              <label class="form-label" for="oracle-wallet-dir-input">Walletディレクトリ</label>
+              <input type="text" class="form-input" id="oracle-wallet-dir-input" placeholder="/home/sano/oracle_wallet/"
+                     onchange="onOracleConfigChange()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Walletパスワード</label>
+              <div class="input-with-toggle">
+                <input type="password" class="form-input" id="oracle-wallet-pw-input" placeholder="Walletパスワード"
+                       onchange="onOracleConfigChange()">
+                <button type="button" class="btn-pw-toggle" onclick="togglePasswordVisibility(this)">表示</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="oracle-table-input">テーブル名</label>
+            <input type="text" class="form-input" id="oracle-table-input" placeholder="HF1RCM01"
+                   onchange="onOracleConfigChange()">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">接続状態</label>
+            <div class="flex items-center gap-2">
+              <span id="bridge-detail-status" class="badge badge-error">停止</span>
+              <span id="oracle-detail-status" class="badge badge-error">DB未接続</span>
+              <button class="btn btn-primary btn-sm" onclick="testOracleConnection()">接続テスト</button>
+            </div>
+            <div id="bridge-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
+            <div id="oracle-test-result" style="font-size:var(--sd-font-size-xs);margin-top:var(--sd-spacing-1)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NTP -->
+      <div class="card">
+        <div class="card-body">
+          <div class="section-title">NTP 時刻同期</div>
+          <div class="form-group">
+            <label class="form-label">サーバー / 同期間隔</label>
+            <div class="flex gap-2">
+              <input type="text" class="form-input" id="ntp-server-input" placeholder="ntp.nict.jp" style="flex:1"
+                     onchange="onNtpConfigChange()">
+              <input type="number" class="form-input" id="ntp-interval-input" placeholder="3600" style="width:80px"
+                     min="60" onchange="onNtpConfigChange()">
+              <span style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);align-self:center">秒</span>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <div class="flex items-center gap-2">
+              <span id="ntp-detail-status" class="badge badge-error">停止</span>
+              <button class="btn btn-primary btn-sm" id="btn-ntp-start" onclick="ntpStart()">有効化</button>
+              <button class="btn btn-secondary btn-sm hidden" id="btn-ntp-stop" onclick="ntpStop()">無効化</button>
+              <button class="btn btn-secondary btn-sm" onclick="ntpSyncNow()">今すぐ同期</button>
+            </div>
+            <div id="ntp-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Color Picker Modal -->
   <div class="modal-backdrop" id="color-modal-backdrop">
     <div class="modal" id="color-modal">
       <div class="modal-header">
         <h3>色の設定</h3>
-        <button class="modal-close" onclick="closeColorModal()">&times;</button>
+        <button class="modal-close" onclick="closeColorModal()" aria-label="閉じる">&times;</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label class="form-label">色名</label>
+          <label class="form-label" for="color-name-input">色名</label>
           <input type="text" class="form-input" id="color-name-input" placeholder="例: 赤">
         </div>
 
@@ -260,7 +304,7 @@
 
         <!-- Saturation slider -->
         <div class="form-group">
-          <label class="form-label">彩度: <span id="sat-display">255</span></label>
+          <label class="form-label" for="sat-slider">彩度: <span id="sat-display">255</span></label>
           <input type="range" id="sat-slider" min="0" max="255" value="255"
                  style="width:100%" oninput="onSatSliderChange()">
         </div>
@@ -330,7 +374,7 @@
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
         <h3 id="rule-modal-title">ルール設定</h3>
-        <button class="modal-close" onclick="closeRuleModal()">&times;</button>
+        <button class="modal-close" onclick="closeRuleModal()" aria-label="閉じる">&times;</button>
       </div>
       <div class="modal-body">
         <div id="rule-list"></div>
@@ -338,18 +382,22 @@
         <hr style="margin:var(--sd-spacing-4) 0;border:none;border-top:1px solid var(--sd-color-border);">
         <div id="rule-form" class="hidden">
           <div class="form-group">
-            <label class="form-label">優先度</label>
-            <input type="number" class="form-input" id="rule-priority" value="100" min="1">
-          </div>
-          <div class="form-group">
-            <label class="form-label">送信値</label>
-            <input type="number" class="form-input" id="rule-value" value="0">
-          </div>
-          <div class="form-group">
             <label class="form-label">条件</label>
             <div id="rule-conditions"></div>
             <button class="btn btn-secondary btn-sm mt-2" onclick="addRuleCondition()">+ 条件追加</button>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="rule-value">送信値</label>
+            <input type="number" class="form-input" id="rule-value" value="0">
+          </div>
+          <details class="mt-2">
+            <summary style="cursor:pointer;font-size:var(--sd-font-size-sm);color:var(--sd-color-text-secondary)">詳細設定</summary>
+            <div class="form-group mt-2">
+              <label class="form-label" for="rule-priority">優先度</label>
+              <input type="number" class="form-input" id="rule-priority" value="100" min="1">
+              <div style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)">数値が大きいルールが優先されます</div>
+            </div>
+          </details>
           <div class="flex justify-between mt-4">
             <button class="btn btn-secondary" onclick="cancelRuleEdit()">キャンセル</button>
             <button class="btn btn-primary" onclick="saveRule()">保存</button>
@@ -362,9 +410,70 @@
     </div>
   </div>
 
+  <!-- Run Confirm Dialog -->
+  <div class="modal-backdrop" id="run-confirm-backdrop">
+    <div class="modal" style="max-width:400px">
+      <div class="modal-header">
+        <h3>実行開始</h3>
+        <button class="modal-close" onclick="closeRunConfirmDialog()" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:var(--sd-font-size-sm)">
+          カメラ映像を表示しますか？<br>
+          <span style="color:var(--sd-color-text-secondary);font-size:var(--sd-font-size-xs)">非表示にすると処理負荷を軽減できます</span>
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="startRunWithCamera(false)">映像なし</button>
+        <button class="btn btn-primary" onclick="startRunWithCamera(true)">映像あり</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setup Modal -->
+  <div class="modal-backdrop" id="setup-modal-backdrop">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <h3>デバイスモード設定</h3>
+      </div>
+      <div class="modal-body">
+        <p>このデバイスの動作モードを選択してください</p>
+        <div class="setup-mode-options">
+          <label class="setup-mode-option selected">
+            <input type="radio" name="setup-device-mode" value="parent" checked>
+            <span class="setup-mode-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/><line x1="10" y1="6" x2="18" y2="6"/><line x1="10" y1="18" x2="18" y2="18"/></svg></span>
+            <div class="setup-mode-text">
+              <span class="setup-mode-label">親機</span>
+              <span class="setup-mode-desc">ブローカー＋DB＋カメラ</span>
+            </div>
+          </label>
+          <label class="setup-mode-option">
+            <input type="radio" name="setup-device-mode" value="child">
+            <span class="setup-mode-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+            <div class="setup-mode-text">
+              <span class="setup-mode-label">子機</span>
+              <span class="setup-mode-desc">カメラのみ → 親機に送信</span>
+            </div>
+          </label>
+        </div>
+        <label class="toggle-label mt-4" id="setup-skip-label">
+          <input type="checkbox" id="setup-skip-checkbox"> 今後この画面を表示しない
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="onSetupConfirm()">設定して開始</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restart Overlay -->
+  <div class="restart-overlay hidden" id="restart-overlay">
+    <div class="restart-message">再起動中...</div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/static/js/main.js"></script>
+  <script src="/static/js/main.js?v=4"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@ import json
 import os
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 
 # =============================================================================
@@ -488,6 +488,22 @@ class ConfigManager:
             self.config['blink_detection'] = {}
         self.config['blink_detection'].update(kwargs)
 
+    def get_device_mode(self) -> str:
+        """デバイスモードを取得 ('parent' or 'child')"""
+        return self.config.get('device_mode', 'parent')
+
+    def set_device_mode(self, mode: str):
+        """デバイスモードを設定"""
+        self.config['device_mode'] = mode
+
+    def get_device_mode_confirmed(self) -> bool:
+        """デバイスモード確認済みか取得"""
+        return self.config.get('device_mode_confirmed', False)
+
+    def set_device_mode_confirmed(self, confirmed: bool):
+        """デバイスモード確認済みを設定"""
+        self.config['device_mode_confirmed'] = confirmed
+
     def get_ntp_config(self) -> dict:
         """NTP同期設定を取得"""
         return self.config.get('ntp', {
@@ -509,6 +525,8 @@ class ConfigManager:
     def to_dict(self) -> dict:
         """設定を辞書形式で取得（API用）"""
         return {
+            'device_mode': self.get_device_mode(),
+            'device_mode_confirmed': self.get_device_mode_confirmed(),
             'station': self.config.get('station', {}),
             'mqtt': self.get_mqtt_config(),
             'camera': self.get_camera_config(),

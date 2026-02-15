@@ -74,10 +74,27 @@ class MQTTSender:
         self._last_values: Dict[int, int] = {}
 
     def start(self):
-        """MQTT接続とバックグラウンドリトライを開始"""
+        """MQTT接続とバックグラウンドリトライを開始
+
+        既に接続済みの場合は何もしない（接続を壊さない）。
+        ブローカー/ポート変更時は先に stop() を呼ぶこと。
+        """
         if not HAS_MQTT or not self.enabled:
             print("[MQTT] Disabled or paho-mqtt not installed")
             return
+
+        # 既に接続済みならスキップ（不要な再接続を防止）
+        if self.connected and self.client is not None:
+            return
+
+        # 古いクライアントがあれば確実に停止
+        if self.client is not None:
+            try:
+                self.client.loop_stop()
+                self.client.disconnect()
+            except Exception:
+                pass
+            self.client = None
 
         try:
             self.client = mqtt.Client(
@@ -92,9 +109,10 @@ class MQTTSender:
         except Exception as e:
             print(f"[MQTT] Connection error: {e}")
 
-        self.running = True
-        self._retry_thread = threading.Thread(target=self._retry_loop, daemon=True)
-        self._retry_thread.start()
+        if not self.running:
+            self.running = True
+            self._retry_thread = threading.Thread(target=self._retry_loop, daemon=True)
+            self._retry_thread.start()
 
         # 起動時に未送信キューを確認
         if self.queue:
@@ -163,7 +181,8 @@ class MQTTSender:
             force: 変化がなくても強制送信するか
 
         Returns:
-            'sent' = 送信成功, 'skipped' = 変化なしスキップ, 'failed' = 送信失敗
+            'sent' = 送信成功, 'skipped' = 変化なしスキップ,
+            'queued' = 送信失敗→キュー保存, 'failed' = 送信失敗（キューなし）
         """
         # 変化チェック（on_changeモード）
         if not force:
@@ -182,11 +201,14 @@ class MQTTSender:
             t1_status=value
         )
 
-        success = self._send_data(data)
-        return 'sent' if success else 'failed'
+        return self._send_data(data)
 
-    def _send_data(self, data: SendData) -> bool:
-        """データを送信（失敗時はキュー保存）"""
+    def _send_data(self, data: SendData) -> str:
+        """データを送信（失敗時はキュー保存）
+
+        Returns:
+            'sent', 'queued', or 'failed'
+        """
         payload = data.to_dict()
         topic = f"{self.base_topic}/{data.sta_no3}"
 
@@ -194,15 +216,16 @@ class MQTTSender:
 
         if success:
             self.stats["sent"] += 1
+            return 'sent'
         else:
             # 失敗時はキューに保存
             if self.queue:
                 self.queue.add({"topic": topic, **payload})
                 self.stats["queued"] += 1
+                return 'queued'
             else:
                 self.stats["errors"] += 1
-
-        return success
+                return 'failed'
 
     def _publish(self, topic: str, payload: dict) -> bool:
         """MQTTブローカーに直接送信"""
