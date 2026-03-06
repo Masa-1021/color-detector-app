@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=Circle Detector
 Comment=カメラ映像の円形領域の色を検知するアプリケーション
-Exec=/home/sano/color_detector_app/launch-desktop.sh
-Icon=/home/sano/color_detector_app/icons/circle-detector-256.png
+Exec=/home/pi/Apps/color-detector-app/launch-desktop.sh
+Icon=/home/pi/Apps/color-detector-app/icons/circle-detector-256.png
 Terminal=false
 Type=Application
 Categories=Utility;

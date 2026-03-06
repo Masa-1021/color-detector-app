@@ -88,6 +88,7 @@ class StationConfig:
     """ステーション設定"""
     sta_no1: str = ""  # 工場コード
     sta_no2: str = ""  # ラインコード
+    sta_no1_options: list = field(default_factory=list)  # STA_NO1選択肢
 
 
 @dataclass
@@ -123,7 +124,7 @@ class OracleConfig:
     dsn: str = "eqstatusdb_low"              # TNS名 (tnsnames.oraに定義)
     user: str = "ADMIN"
     password: str = ""
-    wallet_dir: str = "/home/sano/oracle_wallet"
+    wallet_dir: str = "/home/pi/oracle_wallet"
     wallet_password: str = ""
     use_wallet: bool = True
     table_name: str = "HF1RCM01"

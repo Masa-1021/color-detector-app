@@ -5,9 +5,9 @@ Requires=mosquitto.service
 
 [Service]
 Type=simple
-User=sano
-WorkingDirectory=/home/sano/color_detector_app
-ExecStart=/usr/bin/python3 /home/sano/color_detector_app/mqtt_oracle_bridge.py
+User=pi
+WorkingDirectory=/home/pi/Apps/color-detector-app
+ExecStart=/usr/bin/python3 /home/pi/Apps/color-detector-app/mqtt_oracle_bridge.py
 Restart=always
 RestartSec=5
 

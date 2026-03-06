@@ -66,7 +66,16 @@ function startVideoFeed() {
   img.onerror = () => {
     setTimeout(() => { img.src = '/video_feed?' + Date.now(); }, 2000);
   };
-  img.onload = () => { resizeCanvas(); };
+  // MJPEG streams fire onload on each frame in Chromium.
+  // resizeCanvas() now skips redundant clears, so this is safe.
+  img.onload = () => {
+    resizeCanvas();
+    // Ensure circles are drawn after first frame loads
+    if (!state._videoReady) {
+      state._videoReady = true;
+      redrawCanvas();
+    }
+  };
 }
 
 function setupCanvas() {
@@ -83,9 +92,18 @@ function setupCanvas() {
 function resizeCanvas() {
   const img = document.getElementById('video-feed');
   const canvas = document.getElementById('overlay-canvas');
-  canvas.width = img.clientWidth;
-  canvas.height = img.clientHeight;
-  redrawCanvas();
+  const w = img.clientWidth;
+  const h = img.clientHeight;
+  if (w <= 0 || h <= 0) return;
+  // Only update canvas dimensions when they actually change.
+  // Setting canvas.width/height clears the entire canvas bitmap,
+  // and MJPEG onload fires on every frame in Chromium, which would
+  // cause constant clearing and make circles invisible.
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+    redrawCanvas();
+  }
 }
 
 // =============================================================================
@@ -1402,7 +1420,9 @@ function renderGroups() {
             const ci = state.circles.find(x => x.id === c.circle_id);
             const name = ci ? (ci.name || `円${c.circle_id}`) : `円${c.circle_id}`;
             let s = `${name}(${c.circle_id})=${c.color}`;
-            if (c.blinking) s += '(点滅)';
+            if (c.blinking) {
+              s += c.blink_interval_sec > 0 ? `(点滅${c.blink_interval_sec}秒)` : '(点滅)';
+            }
             return s;
           }).join(' + ');
           return `<div class="rule-summary">${desc} &rarr; <strong>${r.value}</strong> <span style="font-size:10px;opacity:0.5">P:${r.priority}</span></div>`;
@@ -1505,7 +1525,9 @@ function renderRuleList() {
       const circle = state.circles.find(ci => ci.id === c.circle_id);
       const name = circle ? (circle.name || `円${c.circle_id}`) : `円${c.circle_id}`;
       let s = `${name}(${c.circle_id})=${c.color}`;
-      if (c.blinking) s += '(点滅)';
+      if (c.blinking) {
+        s += c.blink_interval_sec > 0 ? `(点滅${c.blink_interval_sec}秒)` : '(点滅)';
+      }
       return s;
     }).join(' + ');
 
@@ -1555,27 +1577,82 @@ function addRuleCondition(existing = null) {
   const el = document.getElementById('rule-conditions');
   const groupCircles = state.circles.filter(c => c.group_id === state.editingRuleGroupId);
 
-  const circleOpts = groupCircles.map(c =>
-    `<option value="${c.id}" ${existing && existing.circle_id === c.id ? 'selected' : ''}>${c.name || '円' + c.id}</option>`
-  ).join('');
+  const blinkChecked = existing && existing.blinking;
+  const intervalVal = existing ? (existing.blink_interval_sec || 0) : 0;
 
   const div = document.createElement('div');
   div.className = 'flex items-center gap-2 mb-2';
-  div.innerHTML = `
-    <select class="form-select cond-circle" style="width:auto;flex:1"
-            onchange="updateCondColorOptions(this)">${circleOpts}</select>
-    <span>=</span>
-    <select class="form-select cond-color" style="width:auto;flex:1"></select>
-    <label style="font-size:var(--sd-font-size-xs);white-space:nowrap">
-      <input type="checkbox" class="cond-blink" ${existing && existing.blinking ? 'checked' : ''}> 点滅
-    </label>
-    <span class="color-item-delete" onclick="this.parentElement.remove()">&times;</span>
-  `;
+  div.style.flexWrap = 'wrap';
+
+  // Build DOM elements safely
+  const circleSelect = document.createElement('select');
+  circleSelect.className = 'form-select cond-circle';
+  circleSelect.style.cssText = 'width:auto;flex:1';
+  circleSelect.setAttribute('onchange', 'updateCondColorOptions(this)');
+  groupCircles.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name || '円' + c.id;
+    if (existing && existing.circle_id === c.id) opt.selected = true;
+    circleSelect.appendChild(opt);
+  });
+
+  const eqSpan = document.createElement('span');
+  eqSpan.textContent = '=';
+
+  const colorSelect = document.createElement('select');
+  colorSelect.className = 'form-select cond-color';
+  colorSelect.style.cssText = 'width:auto;flex:1';
+
+  const blinkLabel = document.createElement('label');
+  blinkLabel.style.cssText = 'font-size:var(--sd-font-size-xs);white-space:nowrap';
+  const blinkCheckbox = document.createElement('input');
+  blinkCheckbox.type = 'checkbox';
+  blinkCheckbox.className = 'cond-blink';
+  blinkCheckbox.checked = !!blinkChecked;
+  blinkCheckbox.addEventListener('change', function() { toggleBlinkInterval(this); });
+  blinkLabel.appendChild(blinkCheckbox);
+  blinkLabel.appendChild(document.createTextNode(' 点滅'));
+
+  const intervalSpan = document.createElement('span');
+  intervalSpan.className = 'cond-blink-interval';
+  intervalSpan.style.cssText = 'font-size:var(--sd-font-size-xs);white-space:nowrap;' + (blinkChecked ? '' : 'display:none');
+  const intervalInput = document.createElement('input');
+  intervalInput.type = 'number';
+  intervalInput.className = 'cond-blink-sec form-input';
+  intervalInput.step = '0.1';
+  intervalInput.min = '0';
+  intervalInput.value = intervalVal;
+  intervalInput.style.cssText = 'width:60px;padding:2px 4px;font-size:var(--sd-font-size-xs)';
+  intervalSpan.appendChild(intervalInput);
+  intervalSpan.appendChild(document.createTextNode(' 秒'));
+
+  const deleteBtn = document.createElement('span');
+  deleteBtn.className = 'color-item-delete';
+  deleteBtn.textContent = '\u00d7';
+  deleteBtn.addEventListener('click', function() { this.parentElement.remove(); });
+
+  div.appendChild(circleSelect);
+  div.appendChild(eqSpan);
+  div.appendChild(colorSelect);
+  div.appendChild(blinkLabel);
+  div.appendChild(intervalSpan);
+  div.appendChild(deleteBtn);
   el.appendChild(div);
 
   // 選択された円の色でプルダウンを初期化
-  const circleSelect = div.querySelector('.cond-circle');
   updateCondColorOptions(circleSelect, existing ? existing.color : null);
+}
+
+function toggleBlinkInterval(checkbox) {
+  const container = checkbox.closest('div');
+  const intervalSpan = container.querySelector('.cond-blink-interval');
+  if (checkbox.checked) {
+    intervalSpan.style.display = '';
+  } else {
+    intervalSpan.style.display = 'none';
+    container.querySelector('.cond-blink-sec').value = 0;
+  }
 }
 
 function updateCondColorOptions(circleSelect, selectedColor = null) {
@@ -1594,7 +1671,8 @@ async function saveRule() {
   const conditions = Array.from(condEls).map(div => ({
     circle_id: parseInt(div.querySelector('.cond-circle').value),
     color: div.querySelector('.cond-color').value,
-    blinking: div.querySelector('.cond-blink').checked
+    blinking: div.querySelector('.cond-blink').checked,
+    blink_interval_sec: parseFloat(div.querySelector('.cond-blink-sec').value) || 0
   }));
 
   if (conditions.length === 0) {
@@ -1768,7 +1846,14 @@ function renderRunStatus(data) {
       const colorName = r ? (r.detected_color || '未検出') : '未検出';
       const bgColor = colorMap[colorName] || '#9CA3AF';
       const blinkClass = r && r.is_blinking ? 'blink-indicator' : '';
-      const blinkText = r && r.is_blinking ? ' (点滅)' : '';
+      let blinkText = '';
+      if (r && r.is_blinking) {
+        if (r.blink_interval_ms != null) {
+          blinkText = ` (点滅${(r.blink_interval_ms / 1000).toFixed(1)}秒)`;
+        } else {
+          blinkText = ' (点滅)';
+        }
+      }
 
       return `
         <div class="circle-status">
@@ -1828,6 +1913,22 @@ function showTab(tab) {
 
   document.getElementById('video-panel').setAttribute('data-hidden', tab !== 'video');
   document.getElementById('settings-panel').setAttribute('data-hidden', tab !== 'settings');
+
+  // When switching to video tab, re-measure canvas size and redraw circles.
+  // The canvas may have had 0 dimensions while the video panel was hidden.
+  if (tab === 'video') {
+    requestAnimationFrame(() => {
+      const img = document.getElementById('video-feed');
+      const canvas = document.getElementById('overlay-canvas');
+      const w = img.clientWidth;
+      const h = img.clientHeight;
+      if (w > 0 && h > 0) {
+        canvas.width = w;
+        canvas.height = h;
+        redrawCanvas();
+      }
+    });
+  }
 }
 
 // =============================================================================

@@ -84,7 +84,20 @@ class RuleEngine:
         color_match = result.detected_color == condition.color
 
         # 点滅状態が一致
-        blink_match = result.is_blinking == condition.blinking
+        if not condition.blinking:
+            # 点滅なしの条件: 点滅していないことを確認
+            blink_match = not result.is_blinking
+        elif condition.blink_interval_sec > 0:
+            # 特定間隔の点滅条件: 点滅中 かつ 間隔が±30%以内
+            if result.is_blinking and result.blink_interval_ms is not None:
+                expected_ms = condition.blink_interval_sec * 1000
+                tolerance = expected_ms * 0.3
+                blink_match = abs(result.blink_interval_ms - expected_ms) <= tolerance
+            else:
+                blink_match = False
+        else:
+            # 任意の点滅条件 (blink_interval_sec == 0): 点滅していればOK
+            blink_match = result.is_blinking
 
         return color_match and blink_match
 

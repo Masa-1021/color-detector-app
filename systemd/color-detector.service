@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=sano
-WorkingDirectory=/home/sano/color_detector_app
+User=pi
+WorkingDirectory=/home/pi/Apps/color-detector-app
 ExecStart=/usr/bin/python3 -m circle_detector.app
 Restart=always
 RestartSec=5

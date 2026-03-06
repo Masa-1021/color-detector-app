@@ -71,13 +71,19 @@ class RuleCondition:
     circle_id: int
     color: str
     blinking: bool = False
+    blink_interval_sec: float = 0.0  # 0 = 任意の点滅、>0 = 特定間隔
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> 'RuleCondition':
-        return cls(**d)
+        return cls(
+            circle_id=d['circle_id'],
+            color=d['color'],
+            blinking=d.get('blinking', False),
+            blink_interval_sec=d.get('blink_interval_sec', 0.0),
+        )
 
 
 @dataclass
@@ -134,13 +140,15 @@ class DetectionResult:
     detected_color: Optional[str]
     is_blinking: bool
     raw_hsv: tuple  # (H, S, V)
+    blink_interval_ms: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
             'circle_id': self.circle_id,
             'detected_color': self.detected_color,
             'is_blinking': self.is_blinking,
-            'raw_hsv': list(self.raw_hsv)
+            'raw_hsv': list(self.raw_hsv),
+            'blink_interval_ms': self.blink_interval_ms,
         }
 
 

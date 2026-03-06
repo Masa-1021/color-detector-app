@@ -1,8 +1,8 @@
 #!/bin/bash
 # MQTT-Oracle ブリッジサービス 起動スクリプト
 
-APP_DIR="/home/sano/color_detector_app"
-ORACLE_ENV="/home/sano/pose_detection/oracle_env"
+APP_DIR="/home/pi/Apps/color-detector-app"
+ORACLE_ENV="/home/pi/Apps/color-detector-app/oracle_env"
 LOG_FILE="$APP_DIR/logs/bridge.log"
 
 cd "$APP_DIR"

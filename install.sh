@@ -6,7 +6,7 @@
 
 set -e
 
-APP_DIR="/home/sano/color_detector_app"
+APP_DIR="/home/pi/Apps/color-detector-app"
 DESKTOP_FILE="$APP_DIR/circle-detector.desktop"
 PANEL_CONF="$HOME/.config/lxpanel-pi/panels/panel"
 

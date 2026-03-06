@@ -4,7 +4,11 @@
   "device_mode": "parent",
   "device_mode_confirmed": true,
   "station": {
-    "sta_no1": "PLANT01",
+    "sta_no1": "SAND",
+    "sta_no1_options": [
+      "SAND",
+      "HIME"
+    ],
     "sta_no2": "LINE01"
   },
   "mqtt": {
@@ -18,16 +22,16 @@
   },
   "oracle": {
     "enabled": true,
-    "dsn": "eqstatusdb_low",
-    "user": "ADMIN",
-    "password": "P@ssw0rd1021",
-    "wallet_dir": "/home/sano/oracle_wallet",
+    "dsn": "10.168.252.16:1521/HHS001",
+    "user": "ZHH001",
+    "password": "ZHH001_99",
+    "wallet_dir": "/home/pi/oracle_wallet",
     "wallet_password": "P@ssw0rd1021",
     "table_name": "HF1RCM01",
     "pool_min": 1,
     "pool_max": 5,
     "pool_increment": 1,
-    "use_wallet": true
+    "use_wallet": false
   },
   "oracle_publisher": {
     "enabled": false,

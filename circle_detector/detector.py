@@ -26,7 +26,7 @@ class BlinkDetector:
         # 履歴: {circle_id: deque of (timestamp_ms, color)}
         self.history: Dict[int, deque] = {}
 
-    def update(self, circle_id: int, color: Optional[str]) -> bool:
+    def update(self, circle_id: int, color: Optional[str]) -> Tuple[bool, Optional[float]]:
         """
         色を記録し、点滅かどうかを判定
 
@@ -35,7 +35,7 @@ class BlinkDetector:
             color: 検出された色（Noneも可）
 
         Returns:
-            点滅中かどうか
+            (点滅中かどうか, 平均間隔ms or None)
         """
         now = time.time() * 1000  # ミリ秒
 
@@ -55,16 +55,19 @@ class BlinkDetector:
 
         return self._is_blinking(history)
 
-    def _is_blinking(self, history: deque) -> bool:
+    def _is_blinking(self, history: deque) -> Tuple[bool, Optional[float]]:
         """
         履歴から点滅を判定
 
         条件:
         1. window_ms内にmin_changes回以上の色変化
         2. 各変化の間隔がmin_interval_ms～max_interval_msの範囲
+
+        Returns:
+            (点滅中かどうか, 有効間隔の平均ms or None)
         """
         if len(history) < self.min_changes + 1:
-            return False
+            return False, None
 
         # 変化間隔を計算
         intervals = []
@@ -78,7 +81,10 @@ class BlinkDetector:
             if self.min_interval_ms <= i <= self.max_interval_ms
         ]
 
-        return len(valid_intervals) >= self.min_changes
+        is_blinking = len(valid_intervals) >= self.min_changes
+        avg_interval = sum(valid_intervals) / len(valid_intervals) if valid_intervals else None
+
+        return is_blinking, avg_interval
 
     def reset(self, circle_id: int = None):
         """履歴をリセット"""
@@ -140,13 +146,14 @@ class DetectionEngine:
         color_name = self._match_color(hsv, circle.colors)
 
         # 点滅判定
-        is_blinking = self.blink_detector.update(circle.id, color_name)
+        is_blinking, blink_interval_ms = self.blink_detector.update(circle.id, color_name)
 
         return DetectionResult(
             circle_id=circle.id,
             detected_color=color_name,
             is_blinking=is_blinking,
-            raw_hsv=hsv
+            raw_hsv=hsv,
+            blink_interval_ms=blink_interval_ms,
         )
 
     def _get_circle_region(self, frame: np.ndarray, circle: Circle) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:

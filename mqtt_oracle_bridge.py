@@ -150,13 +150,27 @@ def process_queue_one() -> bool:
 
 
 def retry_loop():
-    """バックグラウンドでキューを定期的に処理"""
+    """バックグラウンドでキューを定期的に処理（Oracle再接続対応）"""
     global running
 
     retry_interval = 5.0  # 秒
+    reconnect_interval = 30.0  # Oracle再接続の試行間隔（秒）
+    last_reconnect_attempt = 0.0
 
     while running:
         try:
+            # Oracle未接続なら定期的に再接続を試みる
+            if oracle_queue and not oracle_connection:
+                now = time.time()
+                if now - last_reconnect_attempt >= reconnect_interval:
+                    last_reconnect_attempt = now
+                    print("[Retry] Oracle未接続 → 再接続を試みます...")
+                    if init_oracle():
+                        print("[Retry] Oracle再接続成功")
+                    else:
+                        print("[Retry] Oracle再接続失敗（次回再試行まで30秒）")
+
+            # Oracle接続中ならキューを処理
             if oracle_queue and oracle_connection:
                 pending_count = oracle_queue.get_count()
                 if pending_count > 0:

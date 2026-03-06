@@ -1,7 +1,7 @@
 #!/bin/bash
 # Circle Detector 起動スクリプト（ブリッジ自動起動付き）
 
-APP_DIR="/home/sano/color_detector_app"
+APP_DIR="/home/pi/Apps/color-detector-app"
 LOG_DIR="$APP_DIR/logs"
 STARTUP_LOG="$LOG_DIR/startup.log"
 

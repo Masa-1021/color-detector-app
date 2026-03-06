@@ -687,7 +687,8 @@ def create_app(config_path: str = None) -> Flask:
             RuleCondition(
                 circle_id=c['circle_id'],
                 color=c['color'],
-                blinking=c.get('blinking', False)
+                blinking=c.get('blinking', False),
+                blink_interval_sec=float(c.get('blink_interval_sec', 0)),
             )
             for c in data.get('conditions', [])
         ]
@@ -716,7 +717,8 @@ def create_app(config_path: str = None) -> Flask:
                 RuleCondition(
                     circle_id=c['circle_id'],
                     color=c['color'],
-                    blinking=c.get('blinking', False)
+                    blinking=c.get('blinking', False),
+                    blink_interval_sec=float(c.get('blink_interval_sec', 0)),
                 )
                 for c in data['conditions']
             ]

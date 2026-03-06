@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Circle Detector</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=4">
+  <link rel="stylesheet" href="/static/css/style.css?v=5">
 </head>
 <body>
 
@@ -223,7 +223,7 @@
           <div id="oracle-wallet-section" class="hidden">
             <div class="form-group">
               <label class="form-label" for="oracle-wallet-dir-input">Walletディレクトリ</label>
-              <input type="text" class="form-input" id="oracle-wallet-dir-input" placeholder="/home/sano/oracle_wallet/"
+              <input type="text" class="form-input" id="oracle-wallet-dir-input" placeholder="/home/pi/oracle_wallet/"
                      onchange="onOracleConfigChange()">
             </div>
             <div class="form-group">
@@ -385,6 +385,14 @@
             <label class="form-label">条件</label>
             <div id="rule-conditions"></div>
             <button class="btn btn-secondary btn-sm mt-2" onclick="addRuleCondition()">+ 条件追加</button>
+            <details class="mt-2" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary)">
+              <summary style="cursor:pointer">点滅判定について</summary>
+              <div style="margin-top:var(--sd-spacing-1);line-height:1.6">
+                直近2秒間に色の変化が3回以上（間隔100ms～1500ms）あれば「点滅」と判定します。
+                秒数を指定すると、検出した点滅間隔が指定値の±30%以内の場合のみマッチします。
+                0秒の場合は間隔を問わず任意の点滅にマッチします。
+              </div>
+            </details>
           </div>
           <div class="form-group">
             <label class="form-label" for="rule-value">送信値</label>
@@ -474,6 +482,6 @@
   <!-- Toast Container -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/static/js/main.js?v=4"></script>
+  <script src="/static/js/main.js?v=5"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 # Flaskバックエンドを起動し、Chromiumをアプリモードで開く。
 # 終了時にバックエンドも自動停止する。
 
-APP_DIR="/home/sano/color_detector_app"
+APP_DIR="/home/pi/Apps/color-detector-app"
 LOG_DIR="$APP_DIR/logs"
 LOG_FILE="$LOG_DIR/app.log"
 URL="http://localhost:5000"
