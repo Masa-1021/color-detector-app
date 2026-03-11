@@ -1,0 +1,52 @@
+services:
+
+  # ② MQTTブローカー
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+
+  # ① カメラ検出エンジン
+  detector:
+    build:
+      context: .
+      dockerfile: Dockerfile.detector
+    container_name: detector
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+      - ./queue:/app/queue
+    devices:
+      - /dev/video0:/dev/video0
+    privileged: true          # NTP sudo date のため
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+
+  # ③ MQTT → Oracle DB ブリッジ
+  oracle-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.oracle-bridge
+    container_name: oracle-bridge
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    volumes:
+      - ./config:/app/config
+      - ./queue:/app/queue
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+
+volumes:
+  mosquitto-data:

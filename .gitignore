@@ -7,3 +7,4 @@ logs/
 .DS_Store
 queue/
 config/circle_detector.json
+.tmp/
