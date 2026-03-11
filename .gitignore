@@ -8,3 +8,4 @@ logs/
 queue/
 config/circle_detector.json
 .tmp/
+CLAUDE.md
