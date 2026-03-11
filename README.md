@@ -261,6 +261,59 @@ sudo journalctl -u circle-detector -f
 
 ---
 
+## Docker で起動
+
+### 構成
+
+| コンテナ | 役割 | ベースイメージ |
+|---------|------|--------------|
+| `mosquitto` | ② MQTTブローカー | eclipse-mosquitto:2 |
+| `detector` | ① カメラ検出エンジン（Flask :5000） | python:3.11-slim |
+| `oracle-bridge` | ③ MQTT → Oracle DB ブリッジ | python:3.11-slim |
+
+### 起動手順
+
+```bash
+# 1. ビルド & 起動
+docker compose up -d --build
+
+# 2. 状態確認
+docker compose ps
+
+# 3. ログ確認
+docker compose logs -f
+```
+
+ブラウザで `http://localhost:5000` を開き、設定画面の **MQTTブローカー** を `mosquitto` に変更する。
+
+### 停止
+
+```bash
+docker compose down
+```
+
+### 備考
+
+- `config/` と `queue/` はホストにボリュームマウントされるため設定は永続化される
+- カメラは `/dev/video0` をコンテナにマウント（デバイスが異なる場合は `docker-compose.yml` を編集）
+- `detector` コンテナは NTP 同期のため `privileged: true` で起動
+
+---
+
+## k3s オーケストレーション
+
+Docker コンテナをそのまま k3s クラスタにデプロイできます。
+
+| Deployment | nodeSelector | 備考 |
+|-----------|-------------|------|
+| `detector` | カメラ搭載ノード | nodeSelector 必須 |
+| `mosquitto` | Parent ノード | ClusterIP Service で公開 |
+| `oracle-bridge` | 任意 | `mqtt-service:1883` で接続 |
+
+詳細は `.tmp/k3s-architecture.pptx` を参照。
+
+---
+
 ## コマンドラインから起動
 
 ```bash
@@ -328,6 +381,13 @@ color_detector_app/
 ├── run.sh                    # CLI 一括起動スクリプト
 ├── install.sh                # インストール（メニュー・タスクバー・自動起動）
 ├── circle-detector.desktop   # Linux デスクトップエントリ
+│
+├── Dockerfile.detector       # ① 検出エンジン用 Dockerfile
+├── Dockerfile.oracle-bridge  # ③ Oracle ブリッジ用 Dockerfile
+├── docker-compose.yml        # 3サービス構成（mosquitto / detector / oracle-bridge）
+├── docker/
+│   └── mosquitto/
+│       └── mosquitto.conf    # Mosquitto ブローカー設定
 │
 ├── icons/                    # アプリアイコン (SVG/PNG)
 ├── systemd/                  # systemd サービス定義
