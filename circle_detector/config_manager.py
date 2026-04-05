@@ -439,13 +439,19 @@ class ConfigManager:
         return self.config.get('station', {}).get('sta_no1_options', ['PLANT01'])
 
     def get_mqtt_config(self) -> dict:
-        """MQTT設定を取得"""
-        return self.config.get('mqtt', {
+        """MQTT設定を取得（環境変数で上書き可能）"""
+        conf = self.config.get('mqtt', {
             'broker': 'localhost',
             'port': 1883,
             'topic': 'equipment/status',
             'enabled': True
         })
+        # 環境変数による上書き（Docker/k8s用）
+        if os.environ.get('MQTT_BROKER'):
+            conf['broker'] = os.environ['MQTT_BROKER']
+        if os.environ.get('MQTT_PORT'):
+            conf['port'] = int(os.environ['MQTT_PORT'])
+        return conf
 
     def set_mqtt_config(self, **kwargs):
         """MQTT設定を更新"""

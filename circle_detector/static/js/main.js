@@ -224,6 +224,15 @@ function showSetupModal() {
   document.getElementById('setup-modal-backdrop').classList.add('active');
 }
 
+function toggleSettingsPage() {
+  const page = document.getElementById('sys-settings-page');
+  if (page.classList.contains('hidden')) {
+    openSettingsPage();
+  } else {
+    closeSettingsPage();
+  }
+}
+
 function openSettingsPage() {
   // Sync radio buttons to current device mode
   const radios = document.querySelectorAll('input[name="sys-device-mode"]');

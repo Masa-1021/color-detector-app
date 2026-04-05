@@ -241,7 +241,7 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
     """MQTT接続時のコールバック"""
     if reason_code == 0 or (hasattr(reason_code, 'is_failure') and not reason_code.is_failure):
         topic = f"{equipment_config.mqtt.topic}/#"
-        client.subscribe(topic)
+        client.subscribe(topic, qos=2)
         print(f"MQTT: 接続成功、トピック購読: {topic}")
     else:
         print(f"MQTT: 接続失敗 (rc={reason_code})")

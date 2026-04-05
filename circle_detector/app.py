@@ -90,7 +90,8 @@ def create_app(config_path: str = None) -> Flask:
         try:
             conf = config_mgr.get_mqtt_config()
             broker = conf.get('broker', 'localhost')
-            if not is_child and broker in ('localhost', '127.0.0.1', ''):
+            in_container = os.environ.get('MQTT_BROKER') or os.path.exists('/.dockerenv')
+            if not is_child and not in_container and broker in ('localhost', '127.0.0.1', ''):
                 try:
                     result = subprocess.run(
                         ['systemctl', 'is-active', 'mosquitto'],
@@ -113,8 +114,8 @@ def create_app(config_path: str = None) -> Flask:
         except Exception as e:
             print(f"[起動] MQTT: エラー - {e}")
 
-        # 2. MQTT-Oracle ブリッジ起動（親機のみ）
-        if not is_child:
+        # 2. MQTT-Oracle ブリッジ起動（親機のみ、コンテナ外のみ）
+        if not is_child and not in_container:
             try:
                 if not _is_bridge_running():
                     bridge_py = os.path.join(
@@ -142,8 +143,8 @@ def create_app(config_path: str = None) -> Flask:
         else:
             print("[起動] ブリッジ: 子機のためスキップ")
 
-        # 3. Oracle DB 接続テスト（親機のみ）
-        if not is_child:
+        # 3. Oracle DB 接続テスト（親機のみ、コンテナ外のみ）
+        if not is_child and not in_container:
             try:
                 settings = _load_settings()
                 oracle = settings.get('oracle', {})
@@ -447,10 +448,11 @@ def create_app(config_path: str = None) -> Flask:
 
         mqtt_sender.stop()
 
-        # ローカルブローカーの場合、Mosquittoを起動
+        # ローカルブローカーの場合、Mosquittoを起動（コンテナ外のみ）
         conf = config_mgr.get_mqtt_config()
         broker = conf.get('broker', 'localhost')
-        if broker in ('localhost', '127.0.0.1', ''):
+        _in_container = os.environ.get('MQTT_BROKER') or os.path.exists('/.dockerenv')
+        if not _in_container and broker in ('localhost', '127.0.0.1', ''):
             try:
                 result = subprocess.run(
                     ['systemctl', 'is-active', 'mosquitto'],

@@ -233,7 +233,7 @@ class MQTTSender:
             return False
 
         try:
-            result = self.client.publish(topic, json.dumps(payload), qos=1)
+            result = self.client.publish(topic, json.dumps(payload), qos=2)
             return result.rc == mqtt.MQTT_ERR_SUCCESS
         except Exception:
             return False

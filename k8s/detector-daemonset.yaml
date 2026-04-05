@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: circle-detector
+  namespace: circle-detector
+spec:
+  selector:
+    matchLabels:
+      app: circle-detector
+  template:
+    metadata:
+      labels:
+        app: circle-detector
+    spec:
+      # Only run on nodes with a camera
+      nodeSelector:
+        circle-detector/camera: "true"
+      containers:
+        - name: detector
+          image: circle-detector:latest
+          ports:
+            - containerPort: 5000
+              hostPort: 5000
+          env:
+            - name: MQTT_BROKER
+              value: "mosquitto.circle-detector.svc.cluster.local"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+            - name: queue
+              mountPath: /app/queue
+          securityContext:
+            privileged: false
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+      volumes:
+        - name: config
+          configMap:
+            name: app-settings
+        - name: queue
+          emptyDir: {}

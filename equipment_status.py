@@ -725,6 +725,17 @@ def load_equipment_config(filepath: str) -> EquipmentConfig:
         blink=BlinkConfig(**data.get("blink_detection", {})),
         regions=[RegionConfig(**r) for r in data.get("regions", [])]
     )
+    # 環境変数による上書き（Docker/k8s用）
+    if os.environ.get('MQTT_BROKER'):
+        config.mqtt.broker = os.environ['MQTT_BROKER']
+    if os.environ.get('MQTT_PORT'):
+        config.mqtt.port = int(os.environ['MQTT_PORT'])
+    if os.environ.get('ORACLE_DSN'):
+        config.oracle.dsn = os.environ['ORACLE_DSN']
+    if os.environ.get('ORACLE_USER'):
+        config.oracle.user = os.environ['ORACLE_USER']
+    if os.environ.get('ORACLE_PASSWORD'):
+        config.oracle.password = os.environ['ORACLE_PASSWORD']
     return config
 
 

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mqtt-oracle-bridge
+  namespace: circle-detector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mqtt-oracle-bridge
+  template:
+    metadata:
+      labels:
+        app: mqtt-oracle-bridge
+    spec:
+      containers:
+        - name: bridge
+          image: circle-detector:latest
+          command: ["python3", "mqtt_oracle_bridge.py"]
+          env:
+            - name: MQTT_BROKER
+              value: "mosquitto"
+            - name: ORACLE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: dsn
+            - name: ORACLE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: user
+            - name: ORACLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-credentials
+                  key: password
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+            - name: queue
+              mountPath: /app/queue
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: config
+          configMap:
+            name: app-settings
+        - name: queue
+          emptyDir: {}

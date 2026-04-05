@@ -38,6 +38,33 @@ class NTPSync:
         self.last_error: Optional[str] = None
         self.sync_count = 0
 
+    # ホスト側の timesyncd-watcher サービスが監視するシグナルファイル
+    _SIGNAL_DIR = "/run/circle-detector"
+    _SIGNAL_FILE = "/run/circle-detector/ntp-active"
+
+    @staticmethod
+    def _stop_timesyncd():
+        """シグナルファイルを作成して timesyncd 停止を要求"""
+        try:
+            import os
+            os.makedirs(NTPSync._SIGNAL_DIR, exist_ok=True)
+            with open(NTPSync._SIGNAL_FILE, 'w') as f:
+                f.write("1")
+            print("[NTP] Signal: request timesyncd stop")
+        except Exception as e:
+            print(f"[NTP] Failed to signal timesyncd stop: {e}")
+
+    @staticmethod
+    def _start_timesyncd():
+        """シグナルファイルを削除して timesyncd 再開を要求"""
+        try:
+            import os
+            if os.path.exists(NTPSync._SIGNAL_FILE):
+                os.remove(NTPSync._SIGNAL_FILE)
+            print("[NTP] Signal: request timesyncd start")
+        except Exception as e:
+            print(f"[NTP] Failed to signal timesyncd start: {e}")
+
     def start(self):
         """バックグラウンド同期を開始"""
         if not HAS_NTPLIB:
@@ -46,6 +73,7 @@ class NTPSync:
         if self.running:
             return
 
+        self._stop_timesyncd()
         self.running = True
         self._thread = threading.Thread(target=self._sync_loop, daemon=True)
         self._thread.start()
@@ -57,6 +85,7 @@ class NTPSync:
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
+        self._start_timesyncd()
         print("[NTP] Stopped")
 
     def update_config(self, server: str = None, interval_sec: int = None):
