@@ -1,8 +1,8 @@
 #!/bin/bash
-# Circle Detector - デスクトップアプリ起動スクリプト
+# Circle Detector - 設定UI起動スクリプト
 #
-# docker compose でバックエンドを起動し、Chromiumをアプリモードで開く。
-# ブラウザ終了時にコンテナも自動停止する。
+# 設定UI（Flask）コンテナを起動し、Chromiumをアプリモードで開く。
+# 検出ランタイムはターミナルで 'circle-detector start' で起動する。
 
 APP_DIR="/home/pi/Apps/color-detector-app"
 URL="http://localhost:5000"
@@ -29,16 +29,22 @@ open_browser() {
     fi
 }
 
-# ---------- コンテナ起動 ----------
 cd "$APP_DIR" || exit 1
 
-# 既にコンテナが起動中ならブラウザだけ開く
-if docker compose ps --status running 2>/dev/null | grep -q detector; then
+# 検出ランタイムが稼働中なら設定UIは起動できない
+if docker compose ps --services --status running 2>/dev/null | grep -q "^detector-runtime$"; then
+    zenity --error --text="検出ランタイムが稼働中のため設定UIを起動できません。\nターミナルで 'circle-detector stop' を実行してください。" 2>/dev/null || \
+        echo "検出ランタイム稼働中のため設定UIを起動できません" >&2
+    exit 1
+fi
+
+# 設定UIが既に稼働中ならブラウザだけ開く
+if docker compose ps --services --status running 2>/dev/null | grep -q "^config-ui$"; then
     open_browser &
     exit 0
 fi
 
-docker compose up -d
+docker compose --profile ui up -d
 
 # サーバー起動待ち（最大15秒）
 for _ in $(seq 1 30); do
@@ -48,11 +54,11 @@ for _ in $(seq 1 30); do
     sleep 0.5
 done
 
-# ---------- ブラウザ起動（アプリモード）----------
+# ブラウザ起動（アプリモード）
 open_browser &
 BROWSER_PID=$!
 
-# ---------- ブラウザ終了を待つ → コンテナ停止 ----------
+# ブラウザ終了を待つ → 設定UIコンテナ停止
 wait "$BROWSER_PID" 2>/dev/null
 
-docker compose down
+docker compose --profile ui down

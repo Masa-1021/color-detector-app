@@ -2,29 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# OpenCV の依存ライブラリ (headless 版でも必要)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgl1 \
     libgomp1 \
-    sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# 依存パッケージ (oracledb は detector では不要)
 RUN pip install --no-cache-dir \
-    flask \
     opencv-python-headless \
     paho-mqtt \
     numpy \
-    ntplib \
-    oracledb
+    ntplib
 
 COPY circle_detector/ ./circle_detector/
 COPY config/ ./config/
 
-# NTP sudo 用 (コンテナ内 root で実行するため実質不要だが互換性のため)
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 5000
-
-CMD ["python3", "-m", "circle_detector.app"]
+CMD ["python3", "-m", "circle_detector.runtime"]

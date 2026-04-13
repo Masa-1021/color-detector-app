@@ -33,6 +33,7 @@ const state = {
 document.addEventListener('DOMContentLoaded', () => {
   setupCanvas();
   loadConfig();
+  loadProfileInfo();
   startVideoFeed();
 
   // 起動時の自動初期化完了を待ってステータスを更新（5秒後、10秒後）
@@ -173,6 +174,59 @@ async function loadConfig() {
 async function saveConfig() {
   await api('POST', '/api/config');
   showToast('設定を保存しました', 'success');
+}
+
+async function loadProfileInfo() {
+  try {
+    const data = await api('GET', '/api/profiles');
+    const label = document.getElementById('profile-label');
+    if (label) label.textContent = `profile: ${data.current}`;
+  } catch (e) {
+    // ignore
+  }
+}
+
+async function saveAsProfile() {
+  // 現在のプロファイル名+タイムスタンプで初期値を生成（編集可能）
+  let current = 'default';
+  try {
+    const info = await api('GET', '/api/profiles');
+    current = info.current || 'default';
+  } catch (e) {}
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const suggested = `${current}-${ts}`;
+
+  const name = prompt('新しいプロファイル名\n(英数字・ハイフン・アンダースコアのみ)', suggested);
+  if (!name) return;
+
+  try {
+    let res = await fetch('/api/profiles/save-as', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name})
+    });
+    let data = await res.json();
+
+    if (!data.success && data.exists) {
+      if (!confirm(`プロファイル '${name}' は既に存在します。上書きしますか?`)) return;
+      res = await fetch('/api/profiles/save-as', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, overwrite: true})
+      });
+      data = await res.json();
+    }
+
+    if (data.success) {
+      showToast(`プロファイル '${name}' に保存しました`, 'success');
+    } else {
+      showToast(data.error || '保存失敗', 'error');
+    }
+  } catch (e) {
+    showToast('保存エラー: ' + e.message, 'error');
+  }
 }
 
 function onStaNo1Change(value) {
@@ -392,49 +446,8 @@ async function refreshMqttStatus() {
 }
 
 async function refreshBridgeStatus() {
-  if (state.deviceMode === 'child') return;
-  try {
-    const data = await api('GET', '/api/bridge/status');
-    const bridgeRunning = data.running;
-    const oracleOk = data.oracle_connected;
-    const testedOk = data.oracle_test_success;
-
-    // Header Oracle badge
-    const badge = document.getElementById('oracle-badge');
-    if (bridgeRunning && oracleOk) {
-      badge.className = 'badge badge-success';
-      badge.textContent = 'DB: 接続中';
-    } else if (oracleOk || testedOk) {
-      badge.className = 'badge badge-success';
-      badge.textContent = 'DB: 接続中';
-    } else if (bridgeRunning) {
-      badge.className = 'badge badge-warning';
-      badge.textContent = 'DB: 切断';
-    } else {
-      badge.className = 'badge badge-error';
-      badge.textContent = 'DB: 停止';
-    }
-
-    // Detail badges - ブリッジ
-    const bridgeBadge = document.getElementById('bridge-detail-status');
-    bridgeBadge.className = bridgeRunning ? 'badge badge-success' : 'badge badge-error';
-    bridgeBadge.textContent = bridgeRunning ? 'ブリッジ稼働中' : 'ブリッジ停止';
-
-    // Detail badges - Oracle DB
-    const oracleBadge = document.getElementById('oracle-detail-status');
-    oracleBadge.className = oracleOk ? 'badge badge-success' : 'badge badge-error';
-    oracleBadge.textContent = oracleOk ? 'DB接続中' : 'DB未接続';
-
-    // Stats
-    const statsEl = document.getElementById('bridge-stats');
-    if (bridgeRunning) {
-      statsEl.textContent = `受信:${data.received} 保存:${data.inserted} エラー:${data.errors} キュー:${data.pending}`;
-    } else {
-      statsEl.textContent = '';
-    }
-  } catch (e) {
-    // ignore
-  }
+  // 設定UIではブリッジの稼働状態は表示しない（runtimeプロファイルで別途稼働）
+  // Oracle DB接続状態は接続テストボタン押下時のみ更新される
 }
 
 // =============================================================================

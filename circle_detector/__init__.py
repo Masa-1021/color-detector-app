@@ -15,4 +15,9 @@ from .camera import CameraManager
 from .detector import DetectionEngine, BlinkDetector
 from .rule_engine import RuleEngine
 from .mqtt_sender import MQTTSender
-from .app import create_app
+
+# Flaskは設定UI側でのみ必要。検出ランタイム側では読み込まない。
+try:
+    from .app import create_app  # noqa: F401
+except ImportError:
+    pass

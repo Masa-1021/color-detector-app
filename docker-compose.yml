@@ -5,32 +5,59 @@ services:
       - "1883:1883"
     volumes:
       - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-    restart: unless-stopped
+    restart: "no"
+    profiles: ["ui", "runtime"]
 
-  detector:
-    build: .
+  # 設定UI（Flask）: キャリブレーション・設定編集専用
+  config-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.detector
     ports:
       - "5000:5000"
     devices:
       - /dev/video0:/dev/video0
     volumes:
       - ./circle_detector:/app/circle_detector:ro
-      - ./config:/app/config
-      - detector-queue:/app/queue
+      - ${CONFIG_DIR:-./config}:/app/config
+      - ./config:/app/config-root
       - shared-logs:/app/logs
-      - /run/circle-detector:/run/circle-detector
       - /home/pi/oracle_wallet:/home/pi/oracle_wallet:ro
+    environment:
+      - MQTT_BROKER=mosquitto
+      - CONFIG_PROFILE=${CONFIG_PROFILE:-default}
+    depends_on:
+      - mosquitto
+    restart: "no"
+    profiles: ["ui"]
+
+  # 検出ランタイム（ヘッドレス）: 検出ループ + MQTT送信
+  detector-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    devices:
+      - /dev/video0:/dev/video0
+    volumes:
+      - ./circle_detector:/app/circle_detector:ro
+      - ${CONFIG_DIR:-./config}:/app/config
+      - shared-logs:/app/logs
+    tmpfs:
+      - /app/queue:size=50M,mode=1777
     environment:
       - MQTT_BROKER=mosquitto
     depends_on:
       - mosquitto
-    restart: unless-stopped
+    restart: "no"
+    profiles: ["runtime"]
 
+  # MQTT-Oracle ブリッジ: 親機のみ
   bridge:
-    build: .
-    command: ["python3", "mqtt_oracle_bridge.py"]
+    build:
+      context: .
+      dockerfile: Dockerfile.oracle-bridge
     volumes:
-      - ./config:/app/config
+      - ${CONFIG_DIR:-./config}:/app/config
       - bridge-queue:/app/queue
       - shared-logs:/app/logs
       - /home/pi/oracle_wallet:/home/pi/oracle_wallet:ro
@@ -38,9 +65,9 @@ services:
       - MQTT_BROKER=mosquitto
     depends_on:
       - mosquitto
-    restart: unless-stopped
+    restart: "no"
+    profiles: ["runtime"]
 
 volumes:
-  detector-queue:
   shared-logs:
   bridge-queue:

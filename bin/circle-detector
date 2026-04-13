@@ -1,0 +1,216 @@
+#!/bin/bash
+# Circle Detector CLI - 検出ランタイムと設定UIを制御する
+#
+# 使用する設定プロファイルを引数で選択可能:
+#   circle-detector start            → config/ (デフォルト)
+#   circle-detector start line-a     → config/profiles/line-a/
+
+set -e
+
+APP_DIR="/home/pi/Apps/color-detector-app"
+cd "$APP_DIR"
+
+CMD="${1:-help}"
+PROFILE="${2:-default}"
+
+# プロファイル名から設定ディレクトリを解決
+resolve_config_dir() {
+    local name="$1"
+    if [ "$name" = "default" ] || [ -z "$name" ]; then
+        echo "$APP_DIR/config"
+    else
+        echo "$APP_DIR/config/profiles/$name"
+    fi
+}
+
+running_profile() {
+    local svcs
+    svcs=$(docker compose ps --services --status running 2>/dev/null || true)
+    if echo "$svcs" | grep -q "^detector-runtime$"; then
+        echo "runtime"
+    elif echo "$svcs" | grep -q "^config-ui$"; then
+        echo "ui"
+    else
+        echo "none"
+    fi
+}
+
+running_config_dir() {
+    docker compose ps --format json 2>/dev/null | \
+        grep -oE '"Mounts":"[^"]*"' | head -1 | \
+        grep -oE '[^:,]+:/app/config' | cut -d: -f1 || echo "-"
+}
+
+validate_profile() {
+    local name="$1"
+    local dir
+    dir=$(resolve_config_dir "$name")
+    if [ ! -d "$dir" ]; then
+        echo "[CLI] エラー: プロファイル '$name' が存在しません ($dir)" >&2
+        echo "       利用可能なプロファイル:" >&2
+        list_profiles | sed 's/^/       /' >&2
+        exit 1
+    fi
+}
+
+list_profiles() {
+    echo "default"
+    if [ -d "$APP_DIR/config/profiles" ]; then
+        find "$APP_DIR/config/profiles" -mindepth 1 -maxdepth 1 -type d \
+            -exec basename {} \; | sort
+    fi
+}
+
+case "$CMD" in
+    start)
+        validate_profile "$PROFILE"
+        CONFIG_DIR=$(resolve_config_dir "$PROFILE")
+
+        current=$(running_profile)
+        if [ "$current" = "ui" ]; then
+            echo "[CLI] 設定UIが稼働中 → 停止します"
+            docker compose --profile ui down
+        fi
+        echo "[CLI] 検出ランタイムを起動... (profile: $PROFILE, config: $CONFIG_DIR)"
+        CONFIG_DIR="$CONFIG_DIR" docker compose --profile runtime up -d
+        echo "[CLI] 起動完了"
+        docker compose --profile runtime ps
+        ;;
+
+    stop)
+        current=$(running_profile)
+        if [ "$current" = "runtime" ]; then
+            echo "[CLI] 検出ランタイムを停止..."
+            docker compose --profile runtime down
+        else
+            echo "[CLI] 検出ランタイムは稼働していません"
+        fi
+        ;;
+
+    config)
+        validate_profile "$PROFILE"
+        CONFIG_DIR=$(resolve_config_dir "$PROFILE")
+
+        current=$(running_profile)
+        if [ "$current" = "runtime" ]; then
+            echo "[CLI] 検出ランタイム稼働中のため設定UIは起動できません" >&2
+            echo "       先に 'circle-detector stop' を実行してください" >&2
+            exit 1
+        fi
+        if [ "$current" = "ui" ]; then
+            echo "[CLI] 既存の設定UIを停止..."
+            docker compose --profile ui down
+        fi
+        echo "[CLI] 設定UIを起動... (profile: $PROFILE)"
+        CONFIG_DIR="$CONFIG_DIR" CONFIG_PROFILE="$PROFILE" docker compose --profile ui up -d
+        echo "[CLI] http://localhost:5000 で設定してください"
+        ;;
+
+    status)
+        current=$(running_profile)
+        cfg=$(running_config_dir)
+        echo "稼働profile: $current"
+        echo "使用config:  $cfg"
+        echo ""
+        docker compose ps
+        ;;
+
+    logs)
+        shift
+        shift 2>/dev/null || true
+        docker compose logs -f "$@"
+        ;;
+
+    reload)
+        echo "[CLI] 検出ランタイムに設定再読み込みを通知..."
+        docker compose --profile runtime kill -s SIGHUP detector-runtime
+        ;;
+
+    restart)
+        "$0" stop
+        "$0" start "$PROFILE"
+        ;;
+
+    profiles)
+        SUB="${2:-list}"
+        case "$SUB" in
+            list)
+                echo "利用可能な設定プロファイル:"
+                list_profiles | sed 's/^/  - /'
+                ;;
+            create)
+                NAME="$3"
+                if [ -z "$NAME" ]; then
+                    echo "使用方法: circle-detector profiles create <name>" >&2
+                    exit 1
+                fi
+                if [ "$NAME" = "default" ]; then
+                    echo "[CLI] 'default' は予約名です" >&2
+                    exit 1
+                fi
+                DST="$APP_DIR/config/profiles/$NAME"
+                if [ -d "$DST" ]; then
+                    echo "[CLI] プロファイル '$NAME' は既に存在します" >&2
+                    exit 1
+                fi
+                mkdir -p "$DST"
+                cp "$APP_DIR/config/"*.json "$DST/" 2>/dev/null || true
+                echo "[CLI] プロファイル '$NAME' を作成しました ($DST)"
+                echo "       編集: circle-detector config $NAME"
+                ;;
+            delete|rm)
+                NAME="$3"
+                if [ -z "$NAME" ] || [ "$NAME" = "default" ]; then
+                    echo "使用方法: circle-detector profiles delete <name>（default不可）" >&2
+                    exit 1
+                fi
+                DST="$APP_DIR/config/profiles/$NAME"
+                if [ ! -d "$DST" ]; then
+                    echo "[CLI] プロファイル '$NAME' は存在しません" >&2
+                    exit 1
+                fi
+                read -p "[CLI] プロファイル '$NAME' を削除しますか? [y/N] " yn
+                if [ "$yn" = "y" ] || [ "$yn" = "Y" ]; then
+                    rm -rf "$DST"
+                    echo "[CLI] 削除しました"
+                fi
+                ;;
+            *)
+                echo "使用方法: circle-detector profiles [list|create <name>|delete <name>]" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    help|*)
+        cat <<EOF
+Circle Detector CLI
+
+Usage:
+  circle-detector <command> [profile]
+
+Commands:
+  start [profile]    検出ランタイムを起動（profile省略時: default）
+  stop               検出ランタイムを停止
+  config [profile]   設定UIを起動 → http://localhost:5000
+  status             稼働状態と使用中の設定ディレクトリを表示
+  logs [svc]         ログを追従表示
+  reload             検出ランタイムに設定再読み込み通知（SIGHUP）
+  restart [profile]  再起動
+  profiles list              プロファイル一覧
+  profiles create <name>     defaultから複製して新規作成
+  profiles delete <name>     削除
+  help                       このヘルプ
+
+Examples:
+  circle-detector start                    # デフォルト設定で起動
+  circle-detector start line-a             # config/profiles/line-a/ を使用
+  circle-detector profiles create line-b   # 新プロファイル作成
+  circle-detector config line-b            # line-b の設定を編集
+
+Notes:
+  - 設定UIと検出ランタイムは同時起動不可（カメラ競合回避）
+  - start は稼働中のUIを自動で停止します
+EOF
+        ;;
+esac

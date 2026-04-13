@@ -296,6 +296,71 @@ def create_app(config_path: str = None) -> Flask:
         return jsonify(bridge_data)
 
     # -----------------------------------------------------------------------
+    # プロファイル API
+    # -----------------------------------------------------------------------
+    CONFIG_ROOT = "/app/config-root"
+
+    @app.route('/api/profiles', methods=['GET'])
+    def list_profiles():
+        """設定プロファイル一覧と現在編集中のプロファイル名を返す"""
+        import os as _os
+        current = _os.environ.get('CONFIG_PROFILE', 'default')
+        profiles = ['default']
+        profiles_dir = _os.path.join(CONFIG_ROOT, 'profiles')
+        if _os.path.isdir(profiles_dir):
+            for name in sorted(_os.listdir(profiles_dir)):
+                if _os.path.isdir(_os.path.join(profiles_dir, name)):
+                    profiles.append(name)
+        return jsonify({"current": current, "profiles": profiles})
+
+    @app.route('/api/profiles/save-as', methods=['POST'])
+    def save_as_profile():
+        """現在の設定を別名プロファイルとして保存"""
+        import os as _os
+        import shutil as _shutil
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+
+        if not name:
+            return jsonify({"success": False, "error": "プロファイル名が必要です"}), 400
+        if name == 'default':
+            return jsonify({"success": False, "error": "'default' は予約名です"}), 400
+        if not all(c.isalnum() or c in '-_' for c in name):
+            return jsonify({"success": False, "error": "英数字・ハイフン・アンダースコアのみ使用可"}), 400
+
+        dst = _os.path.join(CONFIG_ROOT, 'profiles', name)
+        overwrite = bool(data.get('overwrite'))
+        if _os.path.exists(dst) and not overwrite:
+            return jsonify({"success": False, "error": "既に存在します", "exists": True}), 409
+
+        # 先に保存（現在の編集内容をファイルに反映）
+        config_mgr.save()
+
+        _os.makedirs(dst, exist_ok=True)
+        src = "/app/config"
+        for fname in ('settings.json', 'circle_detector.json'):
+            src_path = _os.path.join(src, fname)
+            if _os.path.exists(src_path):
+                _shutil.copy2(src_path, _os.path.join(dst, fname))
+
+        return jsonify({"success": True, "name": name})
+
+    @app.route('/api/profiles/<name>', methods=['DELETE'])
+    def delete_profile(name):
+        import os as _os
+        import shutil as _shutil
+        if name == 'default':
+            return jsonify({"success": False, "error": "'default' は削除できません"}), 400
+        current = _os.environ.get('CONFIG_PROFILE', 'default')
+        if name == current:
+            return jsonify({"success": False, "error": "編集中のプロファイルは削除できません"}), 400
+        dst = _os.path.join(CONFIG_ROOT, 'profiles', name)
+        if not _os.path.isdir(dst):
+            return jsonify({"success": False, "error": "存在しません"}), 404
+        _shutil.rmtree(dst)
+        return jsonify({"success": True})
+
+    # -----------------------------------------------------------------------
     # デバイスモード API
     # -----------------------------------------------------------------------
     @app.route('/api/device_mode', methods=['GET'])

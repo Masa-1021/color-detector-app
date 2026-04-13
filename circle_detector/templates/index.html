@@ -13,12 +13,13 @@
     <div class="app-title">
       Circle Detector
       <small id="mode-label">編集モード</small>
+      <small id="profile-label" style="margin-left:var(--sd-spacing-2);color:var(--sd-color-text-secondary)">profile: default</small>
     </div>
     <div class="header-actions">
       <button class="btn-gear" onclick="toggleSettingsPage()" title="システム設定" aria-label="システム設定">&#9881;</button>
       <span id="mqtt-badge" class="badge badge-error">MQTT: 未接続</span>
-      <span id="oracle-badge" class="badge badge-error">DB: 未接続</span>
       <button class="btn btn-secondary" onclick="saveConfig()">設定保存</button>
+      <button class="btn btn-secondary" onclick="saveAsProfile()" title="別名で保存">別名保存</button>
       <button id="btn-toggle-mode" class="btn btn-primary" onclick="toggleMode()">
         実行開始
       </button>
@@ -243,11 +244,9 @@
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label">接続状態</label>
             <div class="flex items-center gap-2">
-              <span id="bridge-detail-status" class="badge badge-error">停止</span>
-              <span id="oracle-detail-status" class="badge badge-error">DB未接続</span>
+              <span id="oracle-detail-status" class="badge badge-secondary">未テスト</span>
               <button class="btn btn-primary btn-sm" onclick="testOracleConnection()">接続テスト</button>
             </div>
-            <div id="bridge-stats" style="font-size:var(--sd-font-size-xs);color:var(--sd-color-text-secondary);margin-top:var(--sd-spacing-1)"></div>
             <div id="oracle-test-result" style="font-size:var(--sd-font-size-xs);margin-top:var(--sd-spacing-1)"></div>
           </div>
         </div>
