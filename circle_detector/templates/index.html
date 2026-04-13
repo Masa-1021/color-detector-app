@@ -11,8 +11,7 @@
   <!-- Header -->
   <header class="app-header">
     <div class="app-title">
-      Circle Detector
-      <small id="mode-label">編集モード</small>
+      Circle Detector 設定
       <small id="profile-label" style="margin-left:var(--sd-spacing-2);color:var(--sd-color-text-secondary)">profile: default</small>
     </div>
     <div class="header-actions">
@@ -20,9 +19,6 @@
       <span id="mqtt-badge" class="badge badge-error">MQTT: 未接続</span>
       <button class="btn btn-secondary" onclick="saveConfig()">設定保存</button>
       <button class="btn btn-secondary" onclick="saveAsProfile()" title="別名で保存">別名保存</button>
-      <button id="btn-toggle-mode" class="btn btn-primary" onclick="toggleMode()">
-        実行開始
-      </button>
     </div>
   </header>
 
@@ -101,20 +97,6 @@
           </div>
         </div>
 
-      </div>
-
-      <!-- Run Mode Status -->
-      <div id="run-settings" class="hidden">
-        <div class="settings-section">
-          <div class="section-title">検出状態</div>
-          <div id="status-list" class="status-panel"></div>
-        </div>
-        <div class="settings-section">
-          <div class="section-title">送信ログ</div>
-          <div class="send-log" id="send-log">
-            <div class="empty-state">送信待機中...</div>
-          </div>
-        </div>
       </div>
 
     </div>
@@ -413,26 +395,6 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeRuleModal()">閉じる</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Run Confirm Dialog -->
-  <div class="modal-backdrop" id="run-confirm-backdrop">
-    <div class="modal" style="max-width:400px">
-      <div class="modal-header">
-        <h3>実行開始</h3>
-        <button class="modal-close" onclick="closeRunConfirmDialog()" aria-label="閉じる">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p style="font-size:var(--sd-font-size-sm)">
-          カメラ映像を表示しますか？<br>
-          <span style="color:var(--sd-color-text-secondary);font-size:var(--sd-font-size-xs)">非表示にすると処理負荷を軽減できます</span>
-        </p>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="startRunWithCamera(false)">映像なし</button>
-        <button class="btn btn-primary" onclick="startRunWithCamera(true)">映像あり</button>
       </div>
     </div>
   </div>
